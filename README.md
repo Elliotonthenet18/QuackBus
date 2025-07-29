@@ -32,7 +32,7 @@ services:
     image: elliotonthenet18/quackbus:latest
     container_name: quackbus
     ports:
-      - "7277:3000"
+      - "7277:7277"
     volumes:
       - ./downloads:/app/downloads
       - ./temp:/app/temp
