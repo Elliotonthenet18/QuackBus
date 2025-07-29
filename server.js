@@ -19,8 +19,11 @@ const wss = new WebSocket.Server({ server });
 const PORT = process.env.PORT || 7277;
 const WORKER_URL = process.env.WORKER_URL || 'https://qobuz-proxy.authme.workers.dev';
 
-// Middleware
-app.use(helmet());
+// Middleware - DISABLE HELMET CSP
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false
+}));
 app.use(cors());
 app.use(morgan('combined'));
 app.use(express.json());
@@ -49,8 +52,6 @@ function broadcast(data) {
     }
   });
 }
-
-// API Routes
 
 // Health check
 app.get('/health', (req, res) => {
