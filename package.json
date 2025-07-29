@@ -1,0 +1,46 @@
+{
+  "name": "quackbus",
+  "version": "2.0.0",
+  "description": "A modern, native Docker application for downloading high-quality music from Qobuz with an intuitive web interface.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "nodemon server.js",
+    "client": "cd client && npm start",
+    "build": "cd client && npm run build",
+    "test": "jest"
+  },
+  "keywords": [
+    "music",
+    "downloader",
+    "qobuz",
+    "flac",
+    "hi-res",
+    "docker"
+  ],
+  "author": "Elliotonthenet18",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0",
+    "multer": "^1.4.5-lts.1",
+    "node-fetch": "^3.3.2",
+    "fs-extra": "^11.1.1",
+    "path": "^0.12.7",
+    "uuid": "^9.0.1",
+    "fluent-ffmpeg": "^2.1.2",
+    "music-metadata": "^8.1.4",
+    "sharp": "^0.32.6",
+    "sanitize-filename": "^1.6.3",
+    "ws": "^8.14.2",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1",
+    "concurrently": "^8.2.2",
+    "jest": "^29.7.0"
+  }
+}
