@@ -1,8 +1,6 @@
 const ffmpeg = require('fluent-ffmpeg');
 const fs = require('fs-extra');
 const path = require('path');
-// Use built-in fetch (Node 18+)
-// const fetch = require('node-fetch'); // Remove this line
 
 class MetadataService {
   constructor() {
@@ -30,49 +28,122 @@ class MetadataService {
           }
         });
         
-        // Add artwork if available
-        if (artworkPath) {
-          try {
-            const artworkExists = await fs.pathExists(artworkPath);
-            if (artworkExists) {
-              command.input(artworkPath);
-              command.outputOptions('-map', '0:0', '-map', '1:0');
-              command.outputOptions('-c', 'copy', '-id3v2_version', '3');
-              command.outputOptions('-metadata:s:v', 'title=Album cover');
-              command.outputOptions('-metadata:s:v', 'comment=Cover (front)');
-            } else {
-              command.outputOptions('-c', 'copy');
-            }
-          } catch (err) {
-            console.warn('Artwork file check failed:', err);
-            command.outputOptions('-c', 'copy');
-          }
+        // Add artwork if available (using sync method since we're in Promise callback)
+        if (artworkPath && fs.existsSync(artworkPath)) {
+          command.input(artworkPath);
+          command.outputOptions('-map', '0:0', '-map', '1:0');
+          command.outputOptions('-c', 'copy', '-id3v2_version', '3');
+          command.outputOptions('-metadata:s:v', 'title=Album cover');
+          command.outputOptions('-metadata:s:v', 'comment=Cover (front)');
         } else {
           command.outputOptions('-c', 'copy');
         }
         
         command
           .output(outputFile)
-          .on('end', async () => {
+          .on('end', () => {
             console.log(`Metadata processing completed: ${path.basename(outputFile)}`);
             
             // Clean up artwork file
             if (artworkPath) {
-              await fs.remove(artworkPath).catch(console.error);
+              fs.remove(artworkPath).catch(console.error);
             }
             
             resolve();
           })
-          .on('error', async (err) => {
+          .on('error', (err) => {
             console.error(`FFmpeg error for ${track.title}:`, err);
             
             // Clean up artwork file
             if (artworkPath) {
-              await fs.remove(artworkPath).catch(console.error);
+              fs.remove(artworkPath).catch(console.error);
             }
             
             // If FFmpeg fails, just copy the file without metadata
-            try {
-              await fs.copy(inputFile, outputFile);
-              console.log(`Fallback: Copied file without metadata processing`);
-              resolve();
+            fs.copy(inputFile, outputFile)
+              .then(() => {
+                console.log(`Fallback: Copied file without metadata processing`);
+                resolve();
+              })
+              .catch((copyError) => {
+                console.error(`Failed to copy file as fallback:`, copyError);
+                reject(copyError);
+              });
+          })
+          .run();
+      });
+    } catch (error) {
+      console.error(`Metadata embedding failed for ${track.title}:`, error);
+      // Fallback: copy without metadata
+      await fs.copy(inputFile, outputFile);
+    }
+  }
+
+  buildMetadata(track, album) {
+    const metadata = {};
+    
+    // Basic track info
+    if (track.title) metadata.title = track.title;
+    if (track.performer?.name) metadata.artist = track.performer.name;
+    if (track.composer?.name) metadata.composer = track.composer.name;
+    
+    // Album info
+    if (album) {
+      if (album.title) metadata.album = album.title;
+      if (album.artist?.name) metadata.albumartist = album.artist.name;
+      if (album.label?.name) metadata.publisher = album.label.name;
+      if (album.copyright) metadata.copyright = album.copyright;
+      if (album.upc) metadata.barcode = album.upc;
+      
+      // Release date
+      if (album.release_date_original) {
+        const releaseDate = new Date(album.release_date_original);
+        metadata.date = releaseDate.getFullYear().toString();
+      }
+      
+      // Genre
+      if (album.genre?.name) metadata.genre = album.genre.name;
+    }
+    
+    // Track number and disc info
+    if (track.track_number) metadata.track = track.track_number.toString();
+    if (track.media_number) metadata.disc = track.media_number.toString();
+    if (album?.tracks_count) metadata.tracktotal = album.tracks_count.toString();
+    
+    // Duration
+    if (track.duration) metadata.duration = track.duration.toString();
+    
+    // Technical info
+    if (track.maximum_bit_depth) metadata.comment = `${track.maximum_bit_depth}-bit/${track.maximum_sampling_rate}Hz`;
+    
+    return metadata;
+  }
+
+  async downloadArtwork(album, trackId) {
+    try {
+      const imageUrl = album.image?.large || album.image?.medium || album.image?.small;
+      if (!imageUrl) return null;
+      
+      const tempDir = process.env.TEMP_PATH || '/app/temp';
+      await fs.ensureDir(tempDir);
+      
+      const artworkPath = path.join(tempDir, `artwork_${trackId}.jpg`);
+      
+      const response = await fetch(imageUrl);
+      if (!response.ok) {
+        console.warn(`Failed to download artwork: ${response.status}`);
+        return null;
+      }
+      
+      const buffer = await response.buffer();
+      await fs.writeFile(artworkPath, buffer);
+      
+      return artworkPath;
+    } catch (error) {
+      console.error('Artwork download failed:', error);
+      return null;
+    }
+  }
+}
+
+module.exports = new MetadataService();
