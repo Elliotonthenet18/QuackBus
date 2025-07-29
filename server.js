@@ -16,7 +16,7 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 7277;
 const WORKER_URL = process.env.WORKER_URL || 'https://qobuz-proxy.authme.workers.dev';
 
 // Middleware
