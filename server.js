@@ -26,7 +26,7 @@ app.use(morgan('combined'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve React app
+// Serve React app static files
 app.use(express.static(path.join(__dirname, 'client/build')));
 
 // WebSocket for real-time updates
