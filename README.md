@@ -32,7 +32,7 @@ services:
     image: elliotonthenet18/quackbus:latest
     container_name: quackbus
     ports:
-      - "0727:3000"
+      - "7277:3000"
     volumes:
       - ./downloads:/app/downloads
       - ./temp:/app/temp
@@ -74,7 +74,7 @@ docker-compose up -d
 
 5. **Access the interface:**
 ```
-http://localhost:0727
+http://localhost:7277
 ```
 
 ### After running, you'll have:
@@ -170,10 +170,10 @@ The application provides various endpoints for integration with other tools and 
 
 ## 🛠️ Troubleshooting
 
-### Port 0727 already in use:
+### Port 7277 already in use:
 ```bash
 # Check what's using the port
-lsof -i :0727
+lsof -i :7277
 # Stop the application and restart
 docker-compose down && docker-compose up -d
 ```
