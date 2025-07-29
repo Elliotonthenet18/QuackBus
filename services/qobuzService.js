@@ -1,4 +1,3 @@
-const fetch = require('node-fetch');
 
 const WORKER_URL = process.env.WORKER_URL || 'https://qobuz-proxy.authme.workers.dev';
 
