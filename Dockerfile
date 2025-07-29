@@ -10,20 +10,32 @@ RUN apk add --no-cache \
 # Set working directory
 WORKDIR /app
 
-# Copy package files
+# Copy package files for backend
 COPY package*.json ./
 
-# Install Node.js dependencies
+# Install backend dependencies
 RUN npm install
 
-# Create necessary directories
-RUN mkdir -p /app/downloads /app/temp /app/music /app/config /app/logs
+# Copy and install frontend dependencies
+COPY client/package*.json ./client/
+WORKDIR /app/client
+RUN npm install
+
+# Go back to app root
+WORKDIR /app
 
 # Copy application code
 COPY . .
 
 # Build the React frontend
+WORKDIR /app/client
 RUN npm run build
+
+# Go back to app root
+WORKDIR /app
+
+# Create necessary directories
+RUN mkdir -p /app/downloads /app/temp /app/music /app/config /app/logs
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S quackbus && \
