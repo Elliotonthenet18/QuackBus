@@ -1,6 +1,8 @@
 const ffmpeg = require('fluent-ffmpeg');
 const fs = require('fs-extra');
 const path = require('path');
+// Use built-in fetch (Node 18+)
+// const fetch = require('node-fetch'); // Remove this line
 
 class MetadataService {
   constructor() {
@@ -29,12 +31,22 @@ class MetadataService {
         });
         
         // Add artwork if available
-        if (artworkPath && await fs.pathExists(artworkPath)) {
-          command.input(artworkPath);
-          command.outputOptions('-map', '0:0', '-map', '1:0');
-          command.outputOptions('-c', 'copy', '-id3v2_version', '3');
-          command.outputOptions('-metadata:s:v', 'title=Album cover');
-          command.outputOptions('-metadata:s:v', 'comment=Cover (front)');
+        if (artworkPath) {
+          try {
+            const artworkExists = await fs.pathExists(artworkPath);
+            if (artworkExists) {
+              command.input(artworkPath);
+              command.outputOptions('-map', '0:0', '-map', '1:0');
+              command.outputOptions('-c', 'copy', '-id3v2_version', '3');
+              command.outputOptions('-metadata:s:v', 'title=Album cover');
+              command.outputOptions('-metadata:s:v', 'comment=Cover (front)');
+            } else {
+              command.outputOptions('-c', 'copy');
+            }
+          } catch (err) {
+            console.warn('Artwork file check failed:', err);
+            command.outputOptions('-c', 'copy');
+          }
         } else {
           command.outputOptions('-c', 'copy');
         }
