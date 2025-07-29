@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  quackbus:
+    image: elliotonthenet18/quackbus:latest
+    container_name: quackbus
+    ports:
+      - "0727:3000"
+    volumes:
+      - ./downloads:/app/downloads
+      - ./temp:/app/temp
+      - ./config:/app/config
+      - /path/to/your/music/folder:/app/music  # Change this to your actual music directory
+    environment:
+      # Download Configuration
+      - DEFAULT_QUALITY=7  # 7=Hi-Res, 6=CD Quality, 5=MP3 320k
+      - DOWNLOAD_PATH=/app/music
+      - TEMP_PATH=/app/temp
+      - CONCURRENT_DOWNLOADS=3
+      
+      # Metadata Configuration
+      - EMBED_ARTWORK=true
+      - ORGANIZE_BY_ARTIST=true
+      - CREATE_ALBUM_FOLDERS=true
+      
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
