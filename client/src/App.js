@@ -116,8 +116,12 @@ function App() {
 
   const startDownload = async (type, id, quality = 7) => {
     try {
+      console.log(`Starting download: type=${type}, id=${id}, quality=${quality}`);
+      
       const endpoint = type === 'album' ? '/api/download/album' : '/api/download/track';
       const payload = type === 'album' ? { albumId: id, quality } : { trackId: id, quality };
+      
+      console.log(`Sending request to ${endpoint} with payload:`, payload);
       
       const response = await axios.post(endpoint, payload);
       showToast(`${type === 'album' ? 'Album' : 'Track'} download started!`, 'success');
@@ -125,6 +129,7 @@ function App() {
       return response.data.downloadId;
     } catch (error) {
       const errorMessage = error.response?.data?.error || 'Download failed';
+      console.error('Download error:', error);
       showToast(errorMessage, 'error');
       throw error;
     }
