@@ -1,3 +1,5 @@
+// Use built-in fetch (Node 18+)
+// const fetch = require('node-fetch'); // Remove this line
 const fs = require('fs-extra');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
@@ -127,10 +129,13 @@ class DownloadService {
       downloadInfo.status = 'downloading';
       this.broadcast(downloadInfo, broadcastFn);
       
-      // Get download URL
+      // Get download URL using the new qobuz-dl-api format
+      console.log(`Requesting download URL for track ${track.id} with quality ${quality}`);
       const fileUrlData = await qobuzService.getTrackFileUrl(track.id, quality);
+      console.log(`Received download URL response:`, fileUrlData);
+      
       if (!fileUrlData.url) {
-        throw new Error('No download URL received');
+        throw new Error('No download URL received from qobuz-dl-api');
       }
       
       // Prepare file paths
@@ -195,8 +200,11 @@ class DownloadService {
         const track = tracks[i];
         
         try {
-          // Get download URL
+          // Get download URL using the new qobuz-dl-api format
+          console.log(`Requesting download URL for track ${track.id} with quality ${quality}`);
           const fileUrlData = await qobuzService.getTrackFileUrl(track.id, quality);
+          console.log(`Received download URL response for track ${track.id}:`, fileUrlData);
+          
           if (!fileUrlData.url) {
             console.warn(`No download URL for track ${track.id}, skipping`);
             continue;
