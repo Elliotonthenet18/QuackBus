@@ -178,7 +178,10 @@ const AlbumDetailPage = ({ onDownload, showToast }) => {
 
             <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
               <button 
-                onClick={handleDownloadAlbum}
+                onClick={() => {
+                  console.log(`Downloading full album ID: ${id} with ${album.tracks?.items?.length} tracks`);
+                  handleDownloadAlbum();
+                }}
                 className="btn btn-primary"
                 style={{ padding: '1rem 2rem' }}
               >
@@ -259,7 +262,10 @@ const AlbumDetailPage = ({ onDownload, showToast }) => {
                 )}
                 
                 <button 
-                  onClick={() => handleDownloadTrack(track.id)}
+                  onClick={() => {
+                    console.log(`Downloading track ID: ${track.id} from album ${album.id}`);
+                    handleDownloadTrack(track.id);
+                  }}
                   disabled={downloadingTracks.has(track.id)}
                   className="btn btn-secondary"
                   style={{ padding: '0.5rem 1rem' }}
