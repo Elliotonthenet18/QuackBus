@@ -131,12 +131,17 @@ class DownloadService {
       
       // Get download URL using the new qobuz-dl-api format
       console.log(`Requesting download URL for track ${track.id} with quality ${quality}`);
+      console.log(`Track data:`, { id: track.id, title: track.title });
+      
       const fileUrlData = await qobuzService.getTrackFileUrl(track.id, quality);
       console.log(`Received download URL response:`, fileUrlData);
       
-      if (!fileUrlData.url) {
+      if (!fileUrlData || !fileUrlData.url) {
+        console.error('Invalid response from qobuz-dl-api:', fileUrlData);
         throw new Error('No download URL received from qobuz-dl-api');
       }
+      
+      console.log(`Download URL: ${fileUrlData.url}`);
       
       // Prepare file paths
       const qualityInfo = qobuzService.getQualityInfo(quality);
@@ -253,6 +258,9 @@ class DownloadService {
   }
 
   async downloadFile(url, filePath, downloadInfo, broadcastFn, trackIndex = 0, totalTracks = 1) {
+    console.log(`Starting download from URL: ${url}`);
+    console.log(`Saving to: ${filePath}`);
+    
     const response = await fetch(url);
     
     if (!response.ok) {
@@ -261,6 +269,8 @@ class DownloadService {
     
     const totalSize = parseInt(response.headers.get('content-length') || '0');
     let downloadedSize = 0;
+    
+    console.log(`File size: ${totalSize} bytes (${Math.round(totalSize / 1024 / 1024)} MB)`);
     
     const writeStream = fs.createWriteStream(filePath);
     
@@ -285,6 +295,7 @@ class DownloadService {
     });
     
     await pipeline(response.body, writeStream);
+    console.log(`Download completed: ${filePath}`);
   }
 
   broadcast(downloadInfo, broadcastFn) {
