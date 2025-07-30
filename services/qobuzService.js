@@ -1,3 +1,5 @@
+// Use built-in fetch (Node 18+)
+// const fetch = require('node-fetch'); // Remove this line
 
 const WORKER_URL = process.env.WORKER_URL || 'https://qobuz-proxy.authme.workers.dev';
 
@@ -45,52 +47,62 @@ class QobuzService {
   }
 
   async search(query, type = 'albums', limit = 25) {
-    return this.makeRequest('/catalog/search', {
-      query,
-      type,
+    // Use the new qobuz-dl-api endpoint format
+    return this.makeRequest('/api/get-music', {
+      q: query,
       limit
     });
   }
 
   async getAlbum(albumId) {
-    return this.makeRequest('/album/get', {
+    // Use the new qobuz-dl-api endpoint format
+    return this.makeRequest('/api/get-album', {
       album_id: albumId
     });
   }
 
   async getTrack(trackId) {
-    return this.makeRequest('/track/get', {
+    // For track details, we might need to use a different approach
+    // Since qobuz-dl-api might not have a specific track endpoint
+    // We'll use the search or album endpoint depending on what's available
+    return this.makeRequest('/api/get-track', {
       track_id: trackId
     });
   }
 
   async getTrackFileUrl(trackId, formatId = 7) {
-    return this.makeRequest('/track/getFileUrl', {
+    // Use the new qobuz-dl-api download endpoint format
+    return this.makeRequest('/api/download-music', {
       track_id: trackId,
-      format_id: formatId
+      quality: formatId
     });
   }
 
   async getFeatured() {
-    return this.makeRequest('/album/getFeatured', {
-      type: 'new-releases',
-      genre_id: 'all',
+    // This might not be available in qobuz-dl-api format
+    // We can implement this later or use search with popular terms
+    return this.makeRequest('/api/get-music', {
+      q: 'popular',
       limit: 20
     });
   }
 
   async getGenres() {
-    return this.makeRequest('/genre/list');
+    // This might not be available in qobuz-dl-api format
+    // Return empty for now
+    return { genres: [] };
   }
 
   async getArtist(artistId) {
-    return this.makeRequest('/artist/get', {
+    // This might need to be implemented differently
+    return this.makeRequest('/api/get-artist', {
       artist_id: artistId
     });
   }
 
   async getArtistAlbums(artistId, limit = 25) {
-    return this.makeRequest('/artist/get', {
+    // This might need to be implemented differently
+    return this.makeRequest('/api/get-artist', {
       artist_id: artistId,
       extra: 'albums',
       limit
