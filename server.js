@@ -19,11 +19,8 @@ const wss = new WebSocket.Server({ server });
 const PORT = process.env.PORT || 7277;
 const WORKER_URL = process.env.WORKER_URL || 'https://qobuz-proxy.authme.workers.dev';
 
-// Middleware - DISABLE HELMET CSP
-app.use(helmet({
-  contentSecurityPolicy: false,
-  crossOriginEmbedderPolicy: false
-}));
+// Middleware
+app.use(helmet());
 app.use(cors());
 app.use(morgan('combined'));
 app.use(express.json());
@@ -52,6 +49,8 @@ function broadcast(data) {
     }
   });
 }
+
+// API Routes
 
 // Health check
 app.get('/health', (req, res) => {
@@ -103,6 +102,8 @@ app.get('/api/track/:id', async (req, res) => {
 app.post('/api/download/track', async (req, res) => {
   try {
     const { trackId, quality = 7 } = req.body;
+    
+    console.log(`Download track request: trackId=${trackId}, quality=${quality}`);
     
     if (!trackId) {
       return res.status(400).json({ error: 'Track ID is required' });
