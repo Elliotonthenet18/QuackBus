@@ -72,6 +72,7 @@ class QobuzService {
 
   async getTrackFileUrl(trackId, formatId = 7) {
     // Use the new qobuz-dl-api download endpoint format
+    console.log(`Getting download URL for track ${trackId} with quality ${formatId}`);
     return this.makeRequest('/api/download-music', {
       track_id: trackId,
       quality: formatId
