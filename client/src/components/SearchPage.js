@@ -81,7 +81,10 @@ const SearchPage = ({ onDownload, showToast }) => {
             View Album
           </Link>
           <button 
-            onClick={() => handleDownload('album', album.id)}
+            onClick={() => {
+              console.log(`Downloading album ID: ${album.id} from search results`);
+              handleDownload('album', album.id);
+            }}
             className="btn btn-primary"
           >
             <Download size={16} />
@@ -114,7 +117,10 @@ const SearchPage = ({ onDownload, showToast }) => {
         </div>
         <div className="download-actions">
           <button 
-            onClick={() => handleDownload('track', track.id)}
+            onClick={() => {
+              console.log(`Downloading track ID: ${track.id} from search results`);
+              handleDownload('track', track.id);
+            }}
             className="btn btn-primary"
           >
             <Download size={16} />
