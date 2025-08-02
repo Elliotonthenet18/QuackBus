@@ -16,7 +16,6 @@ services:
       - DEFAULT_QUALITY=7  # 7=Hi-Res, 6=CD Quality, 5=MP3 320k
       - DOWNLOAD_PATH=/app/music
       - TEMP_PATH=/app/temp
-      - CONCURRENT_DOWNLOADS=3
       
       # Metadata Configuration
       - EMBED_ARTWORK=true
