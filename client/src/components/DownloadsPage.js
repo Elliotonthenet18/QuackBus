@@ -131,19 +131,6 @@ const DownloadsPage = ({ downloads, onCancel }) => {
               </div>
             </div>
           ))}
-          
-          {downloads.maxConcurrent && (
-            <div style={{ 
-              marginTop: '1rem', 
-              padding: '1rem', 
-              background: 'rgba(14, 165, 233, 0.1)', 
-              borderRadius: '8px',
-              fontSize: '0.9rem',
-              color: '#0ea5e9'
-            }}>
-              ℹ️ Maximum {downloads.maxConcurrent} concurrent downloads allowed
-            </div>
-          )}
         </div>
       ) : (
         <div className="empty-state">
