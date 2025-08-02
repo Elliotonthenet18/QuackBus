@@ -193,8 +193,6 @@ async function startFileDownload(downloadId, trackId, fileUrl, quality) {
     }
     
     const totalSize = parseInt(response.headers.get('content-length') || '0');
-    let downloadedSize = 0;
-    
     console.log(`📊 File size: ${Math.round(totalSize / 1024 / 1024)} MB`);
     
     // Determine file extension based on quality
@@ -205,54 +203,39 @@ async function startFileDownload(downloadId, trackId, fileUrl, quality) {
     const musicDir = process.env.DOWNLOAD_PATH || '/app/music';
     const filePath = path.join(musicDir, fileName);
     
+    // Ensure directory exists with proper permissions
     await fs.ensureDir(musicDir);
-    const writeStream = fs.createWriteStream(filePath);
+    await fs.chmod(musicDir, 0o755);
     
-    // Track download progress
-    response.body.on('data', (chunk) => {
-      downloadedSize += chunk.length;
-      
-      if (totalSize > 0) {
-        const progress = Math.round((downloadedSize / totalSize) * 100);
-        
-        // Update progress every 10% to reduce spam
-        if (progress !== downloadInfo.progress && progress % 10 === 0) {
-          downloadInfo.progress = progress;
-          console.log(`📊 Download progress: ${progress}% (${trackId})`);
-          broadcast({ type: 'download_update', data: downloadInfo });
-        }
-      }
-    });
+    // Convert ReadableStream to Buffer for Node 18+
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
     
-    // Pipe response to file
-    response.body.pipe(writeStream);
+    console.log(`💾 Writing ${buffer.length} bytes to ${filePath}`);
     
-    writeStream.on('finish', () => {
-      downloadInfo.status = 'completed';
-      downloadInfo.progress = 100;
-      downloadInfo.endTime = new Date().toISOString();
-      downloadInfo.filePath = filePath;
-      
-      console.log(`✅ Download completed: ${fileName}`);
-      broadcast({ type: 'download_update', data: downloadInfo });
-      
-      // Remove from active downloads after 10 seconds
-      setTimeout(() => {
-        activeDownloads.delete(downloadId);
-        broadcast({ type: 'download_removed', data: { id: downloadId } });
-      }, 10000);
-    });
+    // Update progress to 50% (since we have the data)
+    downloadInfo.progress = 50;
+    downloadInfo.status = 'writing';
+    broadcast({ type: 'download_update', data: downloadInfo });
     
-    writeStream.on('error', (error) => {
-      console.error(`❌ Download failed for ${trackId}: ${error.message}`);
-      downloadInfo.status = 'failed';
-      downloadInfo.error = error.message;
-      broadcast({ type: 'download_update', data: downloadInfo });
-      
-      setTimeout(() => {
-        activeDownloads.delete(downloadId);
-      }, 10000);
-    });
+    // Write file with proper permissions
+    await fs.writeFile(filePath, buffer);
+    await fs.chmod(filePath, 0o644);
+    
+    // Complete
+    downloadInfo.status = 'completed';
+    downloadInfo.progress = 100;
+    downloadInfo.endTime = new Date().toISOString();
+    downloadInfo.filePath = filePath;
+    
+    console.log(`✅ Download completed: ${fileName}`);
+    broadcast({ type: 'download_update', data: downloadInfo });
+    
+    // Remove from active downloads after 10 seconds
+    setTimeout(() => {
+      activeDownloads.delete(downloadId);
+      broadcast({ type: 'download_removed', data: { id: downloadId } });
+    }, 10000);
     
   } catch (error) {
     console.error(`❌ File download error for ${trackId}:`, error);
