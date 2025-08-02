@@ -4,7 +4,6 @@ import { Settings, Download, Folder, Music, Info, Server } from 'lucide-react';
 const SettingsPage = () => {
   const [settings, setSettings] = useState({
     defaultQuality: 7,
-    concurrentDownloads: 3,
     embedArtwork: true,
     organizeByArtist: true,
     createAlbumFolders: true
@@ -66,23 +65,6 @@ const SettingsPage = () => {
               </select>
               <p style={{ color: '#888', fontSize: '0.9rem', marginTop: '0.25rem' }}>
                 {qualityOptions.find(q => q.value === settings.defaultQuality)?.description}
-              </p>
-            </div>
-
-            <div>
-              <label style={{ display: 'block', color: '#ccc', marginBottom: '0.5rem', fontWeight: '600' }}>
-                Concurrent Downloads: {settings.concurrentDownloads}
-              </label>
-              <input
-                type="range"
-                min="1"
-                max="10"
-                value={settings.concurrentDownloads}
-                onChange={(e) => handleSettingChange('concurrentDownloads', parseInt(e.target.value))}
-                style={{ width: '100%' }}
-              />
-              <p style={{ color: '#888', fontSize: '0.9rem', marginTop: '0.25rem' }}>
-                Maximum number of simultaneous downloads (1-10)
               </p>
             </div>
           </div>
