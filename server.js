@@ -65,8 +65,16 @@ app.get('/api/search', async (req, res) => {
 
     console.log(`🔍 Searching for: "${query}" (type: ${type})`);
     
-    // Updated search URL format to match the expected format
-    const searchUrl = `https://qobuz-proxy.authme.workers.dev/api/get-music?q=${encodeURIComponent(query)}&limit=${limit}`;
+    // Use different endpoints based on search type
+    let searchUrl;
+    if (type === 'tracks') {
+      // Use the correct format for track searches
+      searchUrl = `https://qobuz-proxy.authme.workers.dev/api/search?query=${encodeURIComponent(query)}&type=tracks&limit=${limit}`;
+    } else {
+      // Use the existing format for album searches
+      searchUrl = `https://qobuz-proxy.authme.workers.dev/api/get-music?q=${encodeURIComponent(query)}&limit=${limit}`;
+    }
+    
     console.log(`🌐 Calling: ${searchUrl}`);
     
     const response = await fetch(searchUrl);
