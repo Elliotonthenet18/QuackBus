@@ -8,7 +8,7 @@ QuackBus is a free and open-source Docker application for downloading high-quali
 - **High-Quality Downloads**: FLAC, Hi-Res (96kHz/192kHz), and MP3 formats
 - **Modern Web Interface**: Clean, responsive UI built with React
 - **Smart Organization**: Automatically organizes downloads by Artist/Album
-- **Concurrent Downloads**: Download multiple tracks simultaneously with queue management
+- **Multiple Downloads**: Download multiple tracks simultaneously with queue management
 - **Real-time Progress**: Live download status and progress tracking via WebSocket
 - **Metadata Embedding**: Automatically embeds track metadata and album artwork using FFmpeg
 - **Download History**: Track completed downloads and manage your library
@@ -43,7 +43,6 @@ services:
       - DEFAULT_QUALITY=7  # 7=Hi-Res, 6=CD Quality, 5=MP3 320k
       - DOWNLOAD_PATH=/app/music
       - TEMP_PATH=/app/temp
-      - CONCURRENT_DOWNLOADS=3
       
       # Metadata Configuration
       - EMBED_ARTWORK=true
@@ -125,7 +124,6 @@ music/
 | `DEFAULT_QUALITY` | `7` | Default audio quality (5=MP3, 6=CD, 7=Hi-Res 96k, 27=Hi-Res 192k) |
 | `DOWNLOAD_PATH` | `/app/music` | Final music library location |
 | `TEMP_PATH` | `/app/temp` | Temporary processing directory |
-| `CONCURRENT_DOWNLOADS` | `3` | Maximum simultaneous downloads |
 | `EMBED_ARTWORK` | `true` | Embed album artwork in files |
 | `ORGANIZE_BY_ARTIST` | `true` | Create artist/album folder structure |
 
@@ -138,7 +136,6 @@ services:
   quackbus:
     environment:
       - DEFAULT_QUALITY=6  # CD Quality by default
-      - CONCURRENT_DOWNLOADS=5  # More concurrent downloads
 ```
 
 ## 🔧 Development
