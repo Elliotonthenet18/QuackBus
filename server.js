@@ -65,6 +65,7 @@ app.get('/api/search', async (req, res) => {
 
     console.log(`🔍 Searching for: "${query}" (type: ${type})`);
     
+    // Updated search URL format to match the expected format
     const searchUrl = `https://qobuz-proxy.authme.workers.dev/api/get-music?q=${encodeURIComponent(query)}&limit=${limit}`;
     console.log(`🌐 Calling: ${searchUrl}`);
     
@@ -79,11 +80,19 @@ app.get('/api/search', async (req, res) => {
     console.log(`📊 Albums found: ${results.albums?.items?.length || 0}`);
     console.log(`📊 Tracks found: ${results.tracks?.items?.length || 0}`);
     
-    // Ensure proper response format
-    const searchResults = {
-      albums: results.albums || { items: [] },
-      tracks: results.tracks || { items: [] }
-    };
+    // Ensure proper response format based on type requested
+    let searchResults;
+    if (type === 'tracks') {
+      searchResults = {
+        tracks: results.tracks || { items: [] },
+        albums: { items: [] }
+      };
+    } else {
+      searchResults = {
+        albums: results.albums || { items: [] },
+        tracks: results.tracks || { items: [] }
+      };
+    }
     
     res.json(searchResults);
   } catch (error) {
@@ -151,7 +160,7 @@ app.post('/api/download/track', async (req, res) => {
     
     const downloadId = 'download-' + Date.now();
     
-    // Start the download immediately without any limits
+    // Start the download immediately
     setImmediate(() => {
       startFileDownload(downloadId, trackId, data.url, quality);
     });
@@ -257,8 +266,7 @@ app.get('/api/downloads', (req, res) => {
   const active = Array.from(activeDownloads.values());
   res.json({
     active,
-    queue: 0,
-    maxConcurrent: 999 // No limit
+    queue: 0
   });
 });
 
@@ -292,7 +300,7 @@ server.listen(PORT, () => {
   console.log(`🌐 Using Qobuz proxy: https://qobuz-proxy.authme.workers.dev`);
   console.log(`📁 Build path: ${buildPath}`);
   console.log(`📥 Music directory: ${process.env.DOWNLOAD_PATH || '/app/music'}`);
-  console.log(`🚀 No concurrent download limits - download as many as you want!`);
+  console.log(`🚀 Ready for downloads!`);
   
   // Ensure directories exist
   fs.ensureDirSync(process.env.DOWNLOAD_PATH || '/app/music');
