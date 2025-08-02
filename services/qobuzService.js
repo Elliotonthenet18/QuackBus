@@ -1,6 +1,4 @@
 // Use built-in fetch (Node 18+)
-// const fetch = require('node-fetch'); // Remove this line
-
 const WORKER_URL = process.env.WORKER_URL || 'https://qobuz-proxy.authme.workers.dev';
 
 class QobuzService {
@@ -47,11 +45,13 @@ class QobuzService {
   }
 
   async search(query, type = 'albums', limit = 25) {
-    // Use the new qobuz-dl-api endpoint format
-    return this.makeRequest('/api/get-music', {
-      q: query,
-      limit
-    });
+    // Use the new qobuz-dl-api endpoint format with proper type handling
+    const endpoint = type === 'tracks' ? '/api/search' : '/api/get-music';
+    const params = type === 'tracks' ? 
+      { query, type: 'tracks', limit } : 
+      { q: query, limit };
+    
+    return this.makeRequest(endpoint, params);
   }
 
   async getAlbum(albumId) {
