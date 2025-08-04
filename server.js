@@ -1,4 +1,96 @@
-require('dotenv').config();
+// Function to process file with FFmpeg
+async function processWithFFmpeg(inputFile, outputFile, track, album) {
+  return new Promise((resolve, reject) => {
+    try {
+      const ffmpeg = require('fluent-ffmpeg');
+      
+      console.log(`🔧 Starting FFmpeg processing: ${path.basename(outputFile)}`);
+      
+      const command = ffmpeg(inputFile);
+      
+      // Build metadata
+      const metadata = {};
+      if (track?.title) metadata.title = track.title;
+      if (track?.performer?.name) metadata.artist = track.performer.name;
+      if (track?.composer?.name) metadata.composer = track.composer.name;
+      if (album?.title) metadata.album = album.title;
+      if (album?.artist?.name) metadata.albumartist = album.artist.name;
+      if (album?.label?.name) metadata.publisher = album.label.name;
+      if (track?.track_number) metadata.track = track.track_number.toString();
+      if (track?.media_number) metadata.disc = track.media_number.toString();
+      if (album?.tracks_count) metadata.tracktotal = album.tracks_count.toString();
+      if (track?.duration) metadata.duration = track.duration.toString();
+      if (album?.genre?.name) metadata.genre = album.genre.name;
+      
+      // Add release date
+      if (album?.release_date_original) {
+        const releaseDate = new Date(album.release_date_original);
+        metadata.date = releaseDate.getFullYear().toString();
+      }
+      
+      // Add technical info as comment
+      if (track?.maximum_bit_depth) {
+        metadata.comment = `${track.maximum_bit_depth}-bit/${track.maximum_sampling_rate}Hz`;
+      }
+      
+      console.log(`🏷️ Embedding metadata:`, metadata);
+      
+      // Add metadata to FFmpeg command
+      Object.entries(metadata).forEach(([key, value]) => {
+        if (value) {
+          command.outputOptions('-metadata', `${key}=${value}`);
+        }
+      });
+      
+      // Copy without re-encoding to preserve quality
+      command.outputOptions('-c', 'copy');
+      
+      command
+        .output(outputFile)
+        .on('start', (commandLine) => {
+          console.log(`🔧 FFmpeg command: ${commandLine}`);
+        })
+        .on('progress', (progress) => {
+          if (progress.percent) {
+            console.log(`🔧 FFmpeg progress: ${Math.round(progress.percent)}%`);
+          }
+        })
+        .on('end', () => {
+          console.log(`✅ FFmpeg processing completed: ${path.basename(outputFile)}`);
+          resolve();
+        })
+        .on('error', (err) => {
+          console.error(`❌ FFmpeg error:`, err.message);
+          // Fallback: just copy the file without metadata
+          console.log(`📋 Fallback: copying file without metadata processing`);
+          fs.copy(inputFile, outputFile)
+            .then(() => {
+              console.log(`✅ Fallback copy completed`);
+              resolve();
+            })
+            .catch((copyError) => {
+              console.error(`❌ Fallback copy failed:`, copyError);
+              reject(copyError);
+            });
+        })
+        .run();
+        
+    } catch (error) {
+      console.error(`❌ FFmpeg setup error:`, error.message);
+      // Fallback: just copy the file
+      console.log(`📋 Fallback: copying file without metadata processing`);
+      fs.copy(inputFile, outputFile)
+        .then(() => {
+          console.log(`✅ Fallback copy completed`);
+          resolve();
+        })
+        .catch((copyError) => {
+          console.error(`❌ Fallback copy failed:`, copyError);
+          reject(copyError);
+        });
+    }
+  });
+}require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -138,7 +230,7 @@ app.get('/api/album/:id', async (req, res) => {
 // Download track with real file download and progress
 app.post('/api/download/track', async (req, res) => {
   try {
-    const { trackId, quality = 7 } = req.body;
+    const { trackId, quality = 7, trackData } = req.body;
     
     console.log(`⬇️ Download track request: trackId=${trackId}, quality=${quality}`);
     
@@ -146,29 +238,43 @@ app.post('/api/download/track', async (req, res) => {
       return res.status(400).json({ error: 'Track ID is required' });
     }
 
-    // First get track details for proper metadata
-    console.log(`🎵 Getting track details for: ${trackId}`);
-    const trackDetailsUrl = `https://qobuz-proxy.authme.workers.dev/api/get-track?track_id=${trackId}`;
-    const trackResponse = await fetch(trackDetailsUrl);
-    
-    if (!trackResponse.ok) {
-      console.error(`❌ Failed to get track details: ${trackResponse.status}`);
-      return res.status(500).json({ error: `Failed to get track details: ${trackResponse.status}` });
-    }
-    
-    const trackData = await trackResponse.json();
-    const track = trackData.track || trackData;
-    console.log(`📊 Track details: ${track.title} by ${track.performer?.name}`);
+    // Use provided track data from search results if available
+    let track = trackData;
+    let album = trackData?.album;
 
-    // Get album details if available
-    let album = null;
-    if (track.album?.id) {
+    // If no track data provided, try to get it (but with fallback)
+    if (!track) {
+      console.log(`🎵 No track data provided, trying to fetch details for: ${trackId}`);
+      try {
+        const trackDetailsUrl = `https://qobuz-proxy.authme.workers.dev/api/get-track?track_id=${trackId}`;
+        const trackResponse = await fetch(trackDetailsUrl);
+        
+        if (trackResponse.ok) {
+          const trackData = await trackResponse.json();
+          track = trackData.track || trackData;
+          console.log(`📊 Track details: ${track.title} by ${track.performer?.name}`);
+        } else {
+          console.log(`⚠️ Could not fetch track details (${trackResponse.status}), proceeding with basic info`);
+        }
+      } catch (error) {
+        console.log(`⚠️ Track details fetch failed, proceeding with basic info:`, error.message);
+      }
+    } else {
+      console.log(`📊 Using provided track data: ${track.title} by ${track.performer?.name}`);
+    }
+
+    // Get album details if available and not already provided
+    if (track?.album?.id && !album?.tracks) {
       console.log(`📀 Getting album details for: ${track.album.id}`);
-      const albumResponse = await fetch(`https://qobuz-proxy.authme.workers.dev/api/get-album?album_id=${track.album.id}`);
-      if (albumResponse.ok) {
-        const albumData = await albumResponse.json();
-        album = albumData.album || albumData;
-        console.log(`📊 Album details: ${album.title} by ${album.artist?.name}`);
+      try {
+        const albumResponse = await fetch(`https://qobuz-proxy.authme.workers.dev/api/get-album?album_id=${track.album.id}`);
+        if (albumResponse.ok) {
+          const albumData = await albumResponse.json();
+          album = albumData.album || albumData;
+          console.log(`📊 Album details: ${album.title} by ${album.artist?.name}`);
+        }
+      } catch (error) {
+        console.log(`⚠️ Album details fetch failed:`, error.message);
       }
     }
 
