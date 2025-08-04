@@ -34,15 +34,18 @@ RUN npm run build
 # Go back to app root
 WORKDIR /app
 
-# Create necessary directories
-RUN mkdir -p /app/downloads /app/temp /app/music /app/config /app/logs
+# Create necessary directories with proper permissions
+RUN mkdir -p /app/downloads /app/temp /app/music /app/config /app/logs && \
+    chmod 755 /app/downloads /app/temp /app/music /app/config /app/logs
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S quackbus && \
     adduser -S quackbus -u 1001 -G quackbus
 
-# Set permissions
-RUN chown -R quackbus:quackbus /app
+# Set permissions for the quackbus user
+RUN chown -R quackbus:quackbus /app && \
+    chmod -R 755 /app/downloads /app/temp /app/music /app/config /app/logs
+
 USER quackbus
 
 # Health check
