@@ -25,8 +25,6 @@ mkdir quackbus && cd quackbus
 
 2. **Create docker-compose.yml:**
 ```yaml
-version: '3.8'
-
 services:
   quackbus:
     image: elliotonthenet18/quackbus:latest
@@ -35,7 +33,6 @@ services:
       - "7277:7277"
     volumes:
       - ./downloads:/app/downloads
-      - ./temp:/app/temp
       - ./config:/app/config
       - /path/to/your/music/folder:/app/music  # Change this to your actual music directory
     environment:
@@ -81,9 +78,8 @@ http://localhost:7277
 quackbus/
 ├── docker-compose.yml
 ├── downloads/           # Temporary download staging
-├── temp/               # FFmpeg processing files
 ├── config/             # Application settings
-└── logs/               # Application logs
+└── logs/               # Application logs (if mapped)
 ```
 
 Plus your music will be organized in your specified music folder!
@@ -131,7 +127,6 @@ music/
 
 Create a `docker-compose.override.yml` file for custom settings:
 ```yaml
-version: '3.8'
 services:
   quackbus:
     environment:
