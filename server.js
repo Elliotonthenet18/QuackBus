@@ -15,6 +15,76 @@ const PORT = process.env.PORT || 7277;
 // Active downloads tracking
 const activeDownloads = new Map();
 
+// Download history storage
+let downloadHistory = [];
+const historyFilePath = path.join(process.env.CONFIG_PATH || '/app/config', 'download_history.json');
+
+// Load download history on startup
+async function loadDownloadHistory() {
+  try {
+    if (await fs.pathExists(historyFilePath)) {
+      const data = await fs.readFile(historyFilePath, 'utf8');
+      downloadHistory = JSON.parse(data);
+      console.log(`📚 Loaded ${downloadHistory.length} items from download history`);
+    }
+  } catch (error) {
+    console.log('⚠️ Could not load download history:', error.message);
+    downloadHistory = [];
+  }
+}
+
+// Save download history
+async function saveDownloadHistory() {
+  try {
+    await fs.ensureDir(path.dirname(historyFilePath));
+    await fs.writeFile(historyFilePath, JSON.stringify(downloadHistory, null, 2));
+  } catch (error) {
+    console.error('❌ Could not save download history:', error.message);
+  }
+}
+
+// Add item to download history
+function addToHistory(downloadInfo, track, album) {
+  const historyItem = {
+    id: downloadInfo.id,
+    trackId: downloadInfo.trackId,
+    title: track?.title || 'Unknown Track',
+    artist: track?.performer?.name || album?.artist?.name || 'Unknown Artist',
+    album: album?.title || 'Unknown Album',
+    quality: getQualityName(downloadInfo.quality),
+    status: downloadInfo.status,
+    startTime: downloadInfo.startTime,
+    endTime: downloadInfo.endTime,
+    filePath: downloadInfo.filePath,
+    fileSize: downloadInfo.fileSize,
+    duration: downloadInfo.endTime && downloadInfo.startTime ? 
+      Math.round((new Date(downloadInfo.endTime) - new Date(downloadInfo.startTime)) / 1000) : null
+  };
+  
+  // Add to beginning of array (newest first)
+  downloadHistory.unshift(historyItem);
+  
+  // Keep only last 500 items
+  if (downloadHistory.length > 500) {
+    downloadHistory = downloadHistory.slice(0, 500);
+  }
+  
+  // Save to file
+  saveDownloadHistory();
+  
+  console.log(`📚 Added to history: ${historyItem.title} by ${historyItem.artist}`);
+}
+
+function getQualityName(qualityId) {
+  const qualityMap = {
+    5: 'MP3 320k',
+    6: 'CD Quality',
+    7: 'Hi-Res 96kHz',
+    27: 'Hi-Res 192kHz'
+  };
+  return qualityMap[qualityId] || 'Unknown Quality';
+}
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -69,23 +139,20 @@ app.get('/api/search', async (req, res) => {
     // Use different endpoints based on search type
     let searchUrl;
     if (type === 'tracks') {
-      // Use the correct format for track searches
       searchUrl = `https://qobuz-proxy.authme.workers.dev/api/search?query=${encodeURIComponent(query)}&type=tracks&limit=${limit}`;
     } else {
-      // Use the existing format for album searches
       searchUrl = `https://qobuz-proxy.authme.workers.dev/api/get-music?q=${encodeURIComponent(query)}&limit=${limit}`;
     }
     
-    console.log(`🌐 Calling: ${searchUrl}`);
+    console.log(`🌐 API call: ${searchUrl}`);
     
     const response = await fetch(searchUrl);
     const results = await response.json();
     
     if (!response.ok) {
-      throw new Error(`Qobuz proxy error: ${response.status}`);
+      throw new Error(`API error: ${response.status}`);
     }
     
-    console.log(`📊 Raw results structure:`, Object.keys(results));
     console.log(`📊 Albums found: ${results.albums?.items?.length || 0}`);
     console.log(`📊 Tracks found: ${results.tracks?.items?.length || 0}`);
     
@@ -117,13 +184,13 @@ app.get('/api/album/:id', async (req, res) => {
     console.log(`📀 Getting album: ${id}`);
     
     const albumUrl = `https://qobuz-proxy.authme.workers.dev/api/get-album?album_id=${id}`;
-    console.log(`🌐 Calling: ${albumUrl}`);
+    console.log(`🌐 API call: ${albumUrl}`);
     
     const response = await fetch(albumUrl);
     
     if (!response.ok) {
-      console.error(`❌ Proxy returned ${response.status}: ${response.statusText}`);
-      return res.status(500).json({ error: `Proxy error: ${response.status}` });
+      console.error(`❌ API returned ${response.status}: ${response.statusText}`);
+      return res.status(500).json({ error: `API error: ${response.status}` });
     }
     
     const albumData = await response.json();
@@ -156,21 +223,21 @@ app.post('/api/download/track', async (req, res) => {
     console.log(`💿 Album: "${album?.title}" by ${album?.artist?.name}`);
 
     const downloadUrl = `https://qobuz-proxy.authme.workers.dev/api/download-music?track_id=${trackId}&quality=${quality}`;
-    console.log(`🌐 Calling: ${downloadUrl}`);
+    console.log(`🌐 API call: ${downloadUrl}`);
     
     const response = await fetch(downloadUrl);
     
     if (!response.ok) {
-      console.error(`❌ Proxy returned ${response.status}: ${response.statusText}`);
-      return res.status(500).json({ error: `Proxy error: ${response.status}` });
+      console.error(`❌ API returned ${response.status}: ${response.statusText}`);
+      return res.status(500).json({ error: `Download failed: ${response.status}` });
     }
     
     const data = await response.json();
-    console.log(`📊 Proxy response received`);
+    console.log(`📊 Download URL received`);
     
     if (!data.url) {
       console.error('❌ No download URL in response');
-      return res.status(500).json({ error: 'No download URL received from proxy' });
+      return res.status(500).json({ error: 'No download URL received' });
     }
     
     console.log(`✅ Got download URL, starting file download with metadata processing`);
@@ -220,7 +287,7 @@ async function startFileDownloadWithProcessing(downloadId, trackId, fileUrl, qua
     broadcast({ type: 'download_update', data: downloadInfo });
     
     // Step 1: Download file
-    console.log(`📡 Downloading from: ${fileUrl.substring(0, 50)}...`);
+    console.log(`📡 Downloading file...`);
     const response = await fetch(fileUrl);
     if (!response.ok) {
       throw new Error(`File download failed: ${response.status}`);
@@ -272,7 +339,6 @@ async function startFileDownloadWithProcessing(downloadId, trackId, fileUrl, qua
     
     console.log(`📁 Album folder: ${albumFolderName}`);
     console.log(`📄 File name: ${fileName}`);
-    console.log(`🗂️ Temp path: ${tempFilePath}`);
     console.log(`🎯 Final path: ${finalFilePath}`);
     
     // Step 3: Create directories
@@ -289,6 +355,7 @@ async function startFileDownloadWithProcessing(downloadId, trackId, fileUrl, qua
     // Update progress
     downloadInfo.progress = 50;
     downloadInfo.status = 'processing';
+    downloadInfo.fileSize = buffer.length;
     broadcast({ type: 'download_update', data: downloadInfo });
     
     // Step 5: Process with FFmpeg
@@ -311,6 +378,9 @@ async function startFileDownloadWithProcessing(downloadId, trackId, fileUrl, qua
     console.log(`✅ === DOWNLOAD COMPLETED ===`);
     console.log(`📂 Final location: ${finalFilePath}`);
     console.log(`⏱️ Duration: ${((new Date() - new Date(downloadInfo.startTime)) / 1000).toFixed(1)}s\n`);
+    
+    // Add to history
+    addToHistory(downloadInfo, track, album);
     
     broadcast({ type: 'download_update', data: downloadInfo });
     
@@ -341,6 +411,11 @@ async function startFileDownloadWithProcessing(downloadId, trackId, fileUrl, qua
     if (downloadInfo) {
       downloadInfo.status = 'failed';
       downloadInfo.error = error.message;
+      downloadInfo.endTime = new Date().toISOString();
+      
+      // Add failed download to history too
+      addToHistory(downloadInfo, track, album);
+      
       broadcast({ type: 'download_update', data: downloadInfo });
       
       setTimeout(() => {
@@ -431,7 +506,7 @@ async function processWithFFmpeg(inputFile, outputFile, track, album) {
     command
       .output(outputFile)
       .on('start', (commandLine) => {
-        console.log(`🔧 FFmpeg command: ffmpeg ${commandLine.split(' ').slice(1).join(' ')}`);
+        console.log(`🔧 FFmpeg started`);
       })
       .on('progress', (progress) => {
         if (progress.percent && progress.percent > 0) {
@@ -461,9 +536,9 @@ app.get('/api/downloads', (req, res) => {
   });
 });
 
-// Download history (placeholder)
+// Download history endpoint
 app.get('/api/history', (req, res) => {
-  res.json([]);
+  res.json(downloadHistory);
 });
 
 // Cancel download
@@ -488,7 +563,6 @@ app.get('*', (req, res) => {
 // Start server
 server.listen(PORT, () => {
   console.log(`🦆 QuackBus running on port ${PORT}`);
-  console.log(`🌐 Using Qobuz proxy: https://qobuz-proxy.authme.workers.dev`);
   console.log(`📁 Build path: ${buildPath}`);
   console.log(`📥 Music directory: ${process.env.DOWNLOAD_PATH || '/app/music'}`);
   console.log(`🚀 Ready for downloads with FFmpeg processing!`);
@@ -496,6 +570,10 @@ server.listen(PORT, () => {
   // Ensure directories exist
   fs.ensureDirSync(process.env.DOWNLOAD_PATH || '/app/music');
   fs.ensureDirSync(process.env.TEMP_PATH || '/app/temp');
+  fs.ensureDirSync(process.env.CONFIG_PATH || '/app/config');
+  
+  // Load download history
+  loadDownloadHistory();
 });
 
 module.exports = app;
