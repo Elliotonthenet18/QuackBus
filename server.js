@@ -146,6 +146,32 @@ app.post('/api/download/track', async (req, res) => {
       return res.status(400).json({ error: 'Track ID is required' });
     }
 
+    // First get track details for proper metadata
+    console.log(`🎵 Getting track details for: ${trackId}`);
+    const trackDetailsUrl = `https://qobuz-proxy.authme.workers.dev/api/get-track?track_id=${trackId}`;
+    const trackResponse = await fetch(trackDetailsUrl);
+    
+    if (!trackResponse.ok) {
+      console.error(`❌ Failed to get track details: ${trackResponse.status}`);
+      return res.status(500).json({ error: `Failed to get track details: ${trackResponse.status}` });
+    }
+    
+    const trackData = await trackResponse.json();
+    const track = trackData.track || trackData;
+    console.log(`📊 Track details: ${track.title} by ${track.performer?.name}`);
+
+    // Get album details if available
+    let album = null;
+    if (track.album?.id) {
+      console.log(`📀 Getting album details for: ${track.album.id}`);
+      const albumResponse = await fetch(`https://qobuz-proxy.authme.workers.dev/api/get-album?album_id=${track.album.id}`);
+      if (albumResponse.ok) {
+        const albumData = await albumResponse.json();
+        album = albumData.album || albumData;
+        console.log(`📊 Album details: ${album.title} by ${album.artist?.name}`);
+      }
+    }
+
     const downloadUrl = `https://qobuz-proxy.authme.workers.dev/api/download-music?track_id=${trackId}&quality=${quality}`;
     console.log(`🌐 Calling: ${downloadUrl}`);
     
@@ -168,9 +194,9 @@ app.post('/api/download/track', async (req, res) => {
     
     const downloadId = 'download-' + Date.now();
     
-    // Start the download immediately
+    // Start the download immediately with track and album data
     setImmediate(() => {
-      startFileDownload(downloadId, trackId, data.url, quality);
+      startFileDownload(downloadId, trackId, data.url, quality, track, album);
     });
     
     res.json({ 
@@ -248,11 +274,11 @@ async function startFileDownload(downloadId, trackId, fileUrl, quality) {
     console.log(`✅ Download completed: ${fileName}`);
     broadcast({ type: 'download_update', data: downloadInfo });
     
-    // Remove from active downloads after 10 seconds
+    // Keep the download info visible for longer so user can see it completed
     setTimeout(() => {
       activeDownloads.delete(downloadId);
       broadcast({ type: 'download_removed', data: { id: downloadId } });
-    }, 10000);
+    }, 15000); // Increased from 10 to 15 seconds
     
   } catch (error) {
     console.error(`❌ File download error for ${trackId}:`, error);
@@ -264,7 +290,7 @@ async function startFileDownload(downloadId, trackId, fileUrl, quality) {
       
       setTimeout(() => {
         activeDownloads.delete(downloadId);
-      }, 10000);
+      }, 15000); // Keep failed downloads visible longer too
     }
   }
 }
