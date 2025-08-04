@@ -250,12 +250,12 @@ const SettingsPage = () => {
         <div className="card">
           <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.5rem', color: '#ffffff' }}>
             <Server size={20} />
-            Connection Status
+            System Status
           </h2>
           
           <div style={{ display: 'grid', gap: '1rem', fontSize: '0.9rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: '#888' }}>Qobuz Proxy:</span>
+              <span style={{ color: '#888' }}>Music Service:</span>
               <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }}></div>
                 Connected
@@ -266,6 +266,13 @@ const SettingsPage = () => {
               <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }}></div>
                 Connected
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: '#888' }}>FFmpeg:</span>
+              <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }}></div>
+                Available
               </span>
             </div>
           </div>
