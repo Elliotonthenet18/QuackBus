@@ -1,10 +1,10 @@
 # QuackBus
 
-QuackBus is a free and open-source Docker application for downloading high-quality music from Qobuz. No Qobuz account is required to download music - just search, find, and download!
+QuackBus is a free and open-source Docker application for downloading high-quality music. No account required - just search, find, and download!
 
 ## ✨ Features
 
-- **Zero Configuration**: No Qobuz account required - just search and download!
+- **Zero Configuration**: No account required - just search and download!
 - **High-Quality Downloads**: FLAC, Hi-Res (96kHz/192kHz), and MP3 formats
 - **Modern Web Interface**: Clean, responsive UI built with React
 - **Smart Organization**: Automatically organizes downloads by Artist/Album
@@ -194,7 +194,7 @@ QuackBus processes all downloads locally in your Docker container. Your download
 
 ## ⚖️ Legal Disclaimer
 
-This application is for educational purposes only. Users are responsible for complying with Qobuz's terms of service and applicable copyright laws. Only download music you own or have permission to download.
+This application is for educational purposes only. Users are responsible for complying with applicable terms of service and copyright laws. Only download music you own or have permission to download.
 
 ## 🤝 Contributing
 
