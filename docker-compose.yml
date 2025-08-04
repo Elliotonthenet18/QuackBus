@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   quackbus:
     image: elliotonthenet18/quackbus:latest
@@ -8,7 +6,6 @@ services:
       - "7277:7277"
     volumes:
       - ./downloads:/app/downloads
-      - ./temp:/app/temp
       - ./config:/app/config
       - /path/to/your/music/folder:/app/music  # Change this to your actual music directory
     environment:
