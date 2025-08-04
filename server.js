@@ -1,102 +1,11 @@
-// Function to process file with FFmpeg
-async function processWithFFmpeg(inputFile, outputFile, track, album) {
-  return new Promise((resolve, reject) => {
-    try {
-      const ffmpeg = require('fluent-ffmpeg');
-      
-      console.log(`🔧 Starting FFmpeg processing: ${path.basename(outputFile)}`);
-      
-      const command = ffmpeg(inputFile);
-      
-      // Build metadata
-      const metadata = {};
-      if (track?.title) metadata.title = track.title;
-      if (track?.performer?.name) metadata.artist = track.performer.name;
-      if (track?.composer?.name) metadata.composer = track.composer.name;
-      if (album?.title) metadata.album = album.title;
-      if (album?.artist?.name) metadata.albumartist = album.artist.name;
-      if (album?.label?.name) metadata.publisher = album.label.name;
-      if (track?.track_number) metadata.track = track.track_number.toString();
-      if (track?.media_number) metadata.disc = track.media_number.toString();
-      if (album?.tracks_count) metadata.tracktotal = album.tracks_count.toString();
-      if (track?.duration) metadata.duration = track.duration.toString();
-      if (album?.genre?.name) metadata.genre = album.genre.name;
-      
-      // Add release date
-      if (album?.release_date_original) {
-        const releaseDate = new Date(album.release_date_original);
-        metadata.date = releaseDate.getFullYear().toString();
-      }
-      
-      // Add technical info as comment
-      if (track?.maximum_bit_depth) {
-        metadata.comment = `${track.maximum_bit_depth}-bit/${track.maximum_sampling_rate}Hz`;
-      }
-      
-      console.log(`🏷️ Embedding metadata:`, metadata);
-      
-      // Add metadata to FFmpeg command
-      Object.entries(metadata).forEach(([key, value]) => {
-        if (value) {
-          command.outputOptions('-metadata', `${key}=${value}`);
-        }
-      });
-      
-      // Copy without re-encoding to preserve quality
-      command.outputOptions('-c', 'copy');
-      
-      command
-        .output(outputFile)
-        .on('start', (commandLine) => {
-          console.log(`🔧 FFmpeg command: ${commandLine}`);
-        })
-        .on('progress', (progress) => {
-          if (progress.percent) {
-            console.log(`🔧 FFmpeg progress: ${Math.round(progress.percent)}%`);
-          }
-        })
-        .on('end', () => {
-          console.log(`✅ FFmpeg processing completed: ${path.basename(outputFile)}`);
-          resolve();
-        })
-        .on('error', (err) => {
-          console.error(`❌ FFmpeg error:`, err.message);
-          // Fallback: just copy the file without metadata
-          console.log(`📋 Fallback: copying file without metadata processing`);
-          fs.copy(inputFile, outputFile)
-            .then(() => {
-              console.log(`✅ Fallback copy completed`);
-              resolve();
-            })
-            .catch((copyError) => {
-              console.error(`❌ Fallback copy failed:`, copyError);
-              reject(copyError);
-            });
-        })
-        .run();
-        
-    } catch (error) {
-      console.error(`❌ FFmpeg setup error:`, error.message);
-      // Fallback: just copy the file
-      console.log(`📋 Fallback: copying file without metadata processing`);
-      fs.copy(inputFile, outputFile)
-        .then(() => {
-          console.log(`✅ Fallback copy completed`);
-          resolve();
-        })
-        .catch((copyError) => {
-          console.error(`❌ Fallback copy failed:`, copyError);
-          reject(copyError);
-        });
-    }
-  });
-}require('dotenv').config();
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs-extra');
 const WebSocket = require('ws');
 const http = require('http');
+const ffmpeg = require('fluent-ffmpeg');
 
 const app = express();
 const server = http.createServer(app);
@@ -233,50 +142,18 @@ app.post('/api/download/track', async (req, res) => {
     const { trackId, quality = 7, trackData } = req.body;
     
     console.log(`⬇️ Download track request: trackId=${trackId}, quality=${quality}`);
+    console.log(`📊 Track data provided:`, !!trackData);
     
     if (!trackId) {
       return res.status(400).json({ error: 'Track ID is required' });
     }
 
-    // Use provided track data from search results if available
+    // Use provided track data from search results
     let track = trackData;
     let album = trackData?.album;
 
-    // If no track data provided, try to get it (but with fallback)
-    if (!track) {
-      console.log(`🎵 No track data provided, trying to fetch details for: ${trackId}`);
-      try {
-        const trackDetailsUrl = `https://qobuz-proxy.authme.workers.dev/api/get-track?track_id=${trackId}`;
-        const trackResponse = await fetch(trackDetailsUrl);
-        
-        if (trackResponse.ok) {
-          const trackData = await trackResponse.json();
-          track = trackData.track || trackData;
-          console.log(`📊 Track details: ${track.title} by ${track.performer?.name}`);
-        } else {
-          console.log(`⚠️ Could not fetch track details (${trackResponse.status}), proceeding with basic info`);
-        }
-      } catch (error) {
-        console.log(`⚠️ Track details fetch failed, proceeding with basic info:`, error.message);
-      }
-    } else {
-      console.log(`📊 Using provided track data: ${track.title} by ${track.performer?.name}`);
-    }
-
-    // Get album details if available and not already provided
-    if (track?.album?.id && !album?.tracks) {
-      console.log(`📀 Getting album details for: ${track.album.id}`);
-      try {
-        const albumResponse = await fetch(`https://qobuz-proxy.authme.workers.dev/api/get-album?album_id=${track.album.id}`);
-        if (albumResponse.ok) {
-          const albumData = await albumResponse.json();
-          album = albumData.album || albumData;
-          console.log(`📊 Album details: ${album.title} by ${album.artist?.name}`);
-        }
-      } catch (error) {
-        console.log(`⚠️ Album details fetch failed:`, error.message);
-      }
-    }
+    console.log(`🎵 Track: "${track?.title}" by ${track?.performer?.name}`);
+    console.log(`💿 Album: "${album?.title}" by ${album?.artist?.name}`);
 
     const downloadUrl = `https://qobuz-proxy.authme.workers.dev/api/download-music?track_id=${trackId}&quality=${quality}`;
     console.log(`🌐 Calling: ${downloadUrl}`);
@@ -296,13 +173,13 @@ app.post('/api/download/track', async (req, res) => {
       return res.status(500).json({ error: 'No download URL received from proxy' });
     }
     
-    console.log(`✅ Got download URL, starting file download`);
+    console.log(`✅ Got download URL, starting file download with metadata processing`);
     
     const downloadId = 'download-' + Date.now();
     
-    // Start the download immediately with track and album data
+    // Start the download with track and album data
     setImmediate(() => {
-      startFileDownload(downloadId, trackId, data.url, quality, track, album);
+      startFileDownloadWithProcessing(downloadId, trackId, data.url, quality, track, album);
     });
     
     res.json({ 
@@ -318,10 +195,15 @@ app.post('/api/download/track', async (req, res) => {
   }
 });
 
-// Function to download the actual file
-async function startFileDownload(downloadId, trackId, fileUrl, quality) {
+// Main download function with FFmpeg processing
+async function startFileDownloadWithProcessing(downloadId, trackId, fileUrl, quality, track, album) {
+  let tempFilePath = null;
+  
   try {
-    console.log(`📥 Starting file download: ${downloadId} for track ${trackId}`);
+    console.log(`\n🚀 === STARTING DOWNLOAD ${downloadId} ===`);
+    console.log(`📥 Track ID: ${trackId}`);
+    console.log(`🎵 Track: "${track?.title || 'Unknown'}" by ${track?.performer?.name || 'Unknown'}`);
+    console.log(`💿 Album: "${album?.title || 'Unknown'}" by ${album?.artist?.name || 'Unknown'}`);
     
     const downloadInfo = {
       id: downloadId,
@@ -330,12 +212,15 @@ async function startFileDownload(downloadId, trackId, fileUrl, quality) {
       status: 'downloading',
       progress: 0,
       startTime: new Date().toISOString(),
-      title: `Track ${trackId}`
+      title: track?.title || `Track ${trackId}`,
+      artist: track?.performer?.name || album?.artist?.name || 'Unknown Artist'
     };
     
     activeDownloads.set(downloadId, downloadInfo);
     broadcast({ type: 'download_update', data: downloadInfo });
     
+    // Step 1: Download file
+    console.log(`📡 Downloading from: ${fileUrl.substring(0, 50)}...`);
     const response = await fetch(fileUrl);
     if (!response.ok) {
       throw new Error(`File download failed: ${response.status}`);
@@ -344,50 +229,114 @@ async function startFileDownload(downloadId, trackId, fileUrl, quality) {
     const totalSize = parseInt(response.headers.get('content-length') || '0');
     console.log(`📊 File size: ${Math.round(totalSize / 1024 / 1024)} MB`);
     
-    // Determine file extension based on quality
+    // Step 2: Prepare file paths
     const extensions = { 5: 'mp3', 6: 'flac', 7: 'flac', 27: 'flac' };
     const extension = extensions[quality] || 'flac';
     
-    const fileName = `${trackId}.${extension}`;
+    // Sanitize function for filenames
+    const sanitize = (str) => {
+      if (!str) return 'Unknown';
+      return str
+        .replace(/[<>:"/\\|?*]/g, '') // Remove invalid chars
+        .replace(/\s+/g, ' ')         // Single spaces
+        .trim()
+        .substring(0, 80);            // Reasonable length
+    };
+    
+    // Build metadata with fallbacks
+    const trackTitle = sanitize(track?.title || 'Unknown Track');
+    const artistName = sanitize(track?.performer?.name || album?.artist?.name || 'Unknown Artist');
+    const albumTitle = sanitize(album?.title || 'Unknown Album');
+    const trackNumber = String(track?.track_number || 1).padStart(2, '0');
+    
+    // Get year
+    let year = '';
+    if (album?.release_date_original) {
+      try {
+        year = new Date(album.release_date_original).getFullYear();
+      } catch (e) {
+        console.log(`⚠️ Could not parse year from: ${album.release_date_original}`);
+      }
+    }
+    
+    // Create final paths
+    const albumFolderName = year ? `${artistName} - ${albumTitle} (${year})` : `${artistName} - ${albumTitle}`;
+    const fileName = `${trackNumber} - ${trackTitle}.${extension}`;
+    
     const musicDir = process.env.DOWNLOAD_PATH || '/app/music';
-    const filePath = path.join(musicDir, fileName);
+    const tempDir = process.env.TEMP_PATH || '/app/temp';
+    const albumDir = path.join(musicDir, albumFolderName);
     
-    // Ensure directory exists with proper permissions
-    await fs.ensureDir(musicDir);
-    await fs.chmod(musicDir, 0o755);
+    tempFilePath = path.join(tempDir, `${downloadId}.${extension}`);
+    const finalFilePath = path.join(albumDir, fileName);
     
-    // Convert ReadableStream to Buffer for Node 18+
+    console.log(`📁 Album folder: ${albumFolderName}`);
+    console.log(`📄 File name: ${fileName}`);
+    console.log(`🗂️ Temp path: ${tempFilePath}`);
+    console.log(`🎯 Final path: ${finalFilePath}`);
+    
+    // Step 3: Create directories
+    await fs.ensureDir(tempDir);
+    await fs.ensureDir(albumDir);
+    console.log(`✅ Created directories`);
+    
+    // Step 4: Write to temp file
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
+    await fs.writeFile(tempFilePath, buffer);
+    console.log(`✅ Downloaded to temp file: ${buffer.length} bytes`);
     
-    console.log(`💾 Writing ${buffer.length} bytes to ${filePath}`);
-    
-    // Update progress to 50% (since we have the data)
+    // Update progress
     downloadInfo.progress = 50;
-    downloadInfo.status = 'writing';
+    downloadInfo.status = 'processing';
     broadcast({ type: 'download_update', data: downloadInfo });
     
-    // Write file with proper permissions
-    await fs.writeFile(filePath, buffer);
-    await fs.chmod(filePath, 0o644);
+    // Step 5: Process with FFmpeg
+    console.log(`🔧 Starting FFmpeg processing...`);
+    await processWithFFmpeg(tempFilePath, finalFilePath, track, album);
+    console.log(`✅ FFmpeg processing completed`);
     
-    // Complete
+    // Step 6: Clean up temp file
+    if (tempFilePath && await fs.pathExists(tempFilePath)) {
+      await fs.remove(tempFilePath);
+      console.log(`🧹 Cleaned up temp file`);
+    }
+    
+    // Step 7: Complete
     downloadInfo.status = 'completed';
     downloadInfo.progress = 100;
     downloadInfo.endTime = new Date().toISOString();
-    downloadInfo.filePath = filePath;
+    downloadInfo.filePath = finalFilePath;
     
-    console.log(`✅ Download completed: ${fileName}`);
+    console.log(`✅ === DOWNLOAD COMPLETED ===`);
+    console.log(`📂 Final location: ${finalFilePath}`);
+    console.log(`⏱️ Duration: ${((new Date() - new Date(downloadInfo.startTime)) / 1000).toFixed(1)}s\n`);
+    
     broadcast({ type: 'download_update', data: downloadInfo });
     
-    // Keep the download info visible for longer so user can see it completed
+    // Keep visible for 15 seconds
     setTimeout(() => {
       activeDownloads.delete(downloadId);
       broadcast({ type: 'download_removed', data: { id: downloadId } });
-    }, 15000); // Increased from 10 to 15 seconds
+    }, 15000);
     
   } catch (error) {
-    console.error(`❌ File download error for ${trackId}:`, error);
+    console.error(`❌ === DOWNLOAD FAILED ===`);
+    console.error(`❌ Error:`, error.message);
+    console.error(`❌ Stack:`, error.stack);
+    
+    // Clean up temp file on error
+    if (tempFilePath) {
+      try {
+        if (await fs.pathExists(tempFilePath)) {
+          await fs.remove(tempFilePath);
+          console.log(`🧹 Cleaned up temp file after error`);
+        }
+      } catch (cleanupError) {
+        console.error(`❌ Failed to clean up temp file:`, cleanupError.message);
+      }
+    }
+    
     const downloadInfo = activeDownloads.get(downloadId);
     if (downloadInfo) {
       downloadInfo.status = 'failed';
@@ -396,9 +345,111 @@ async function startFileDownload(downloadId, trackId, fileUrl, quality) {
       
       setTimeout(() => {
         activeDownloads.delete(downloadId);
-      }, 15000); // Keep failed downloads visible longer too
+      }, 15000);
     }
   }
+}
+
+// FFmpeg processing function
+async function processWithFFmpeg(inputFile, outputFile, track, album) {
+  return new Promise((resolve, reject) => {
+    console.log(`🔧 FFmpeg: ${path.basename(inputFile)} -> ${path.basename(outputFile)}`);
+    
+    const command = ffmpeg(inputFile);
+    
+    // Build metadata object
+    const metadata = {};
+    
+    // Essential metadata
+    if (track?.title) {
+      metadata.title = track.title;
+      console.log(`🏷️ Title: ${track.title}`);
+    }
+    
+    if (track?.performer?.name) {
+      metadata.artist = track.performer.name;
+      console.log(`🏷️ Artist: ${track.performer.name}`);
+    }
+    
+    if (album?.title) {
+      metadata.album = album.title;
+      console.log(`🏷️ Album: ${album.title}`);
+    }
+    
+    if (album?.artist?.name) {
+      metadata.albumartist = album.artist.name;
+      console.log(`🏷️ Album Artist: ${album.artist.name}`);
+    }
+    
+    if (track?.track_number) {
+      metadata.track = track.track_number.toString();
+      console.log(`🏷️ Track Number: ${track.track_number}`);
+    }
+    
+    // Additional metadata
+    if (album?.release_date_original) {
+      try {
+        const year = new Date(album.release_date_original).getFullYear();
+        metadata.date = year.toString();
+        console.log(`🏷️ Year: ${year}`);
+      } catch (e) {
+        console.log(`⚠️ Could not parse release date: ${album.release_date_original}`);
+      }
+    }
+    
+    if (album?.genre?.name) {
+      metadata.genre = album.genre.name;
+      console.log(`🏷️ Genre: ${album.genre.name}`);
+    }
+    
+    if (album?.label?.name) {
+      metadata.publisher = album.label.name;
+      console.log(`🏷️ Label: ${album.label.name}`);
+    }
+    
+    // Add metadata to FFmpeg command
+    Object.entries(metadata).forEach(([key, value]) => {
+      if (value && typeof value === 'string' && value.trim()) {
+        command.outputOptions('-metadata', `${key}=${value.trim()}`);
+      }
+    });
+    
+    // Use copy codec to preserve quality
+    command.outputOptions('-c', 'copy');
+    
+    // Add timeout protection
+    const timeout = setTimeout(() => {
+      console.log(`⏰ FFmpeg timeout (30s), terminating...`);
+      try {
+        command.kill('SIGKILL');
+      } catch (killError) {
+        console.log(`⚠️ Could not kill FFmpeg process:`, killError.message);
+      }
+      reject(new Error('FFmpeg processing timeout'));
+    }, 30000);
+    
+    command
+      .output(outputFile)
+      .on('start', (commandLine) => {
+        console.log(`🔧 FFmpeg command: ffmpeg ${commandLine.split(' ').slice(1).join(' ')}`);
+      })
+      .on('progress', (progress) => {
+        if (progress.percent && progress.percent > 0) {
+          console.log(`🔧 FFmpeg progress: ${Math.round(progress.percent)}%`);
+        }
+      })
+      .on('end', () => {
+        clearTimeout(timeout);
+        console.log(`✅ FFmpeg completed successfully`);
+        resolve();
+      })
+      .on('error', (err) => {
+        clearTimeout(timeout);
+        console.error(`❌ FFmpeg error: ${err.message}`);
+        reject(err);
+      })
+      .run();
+  });
 }
 
 // Get download status
@@ -440,7 +491,7 @@ server.listen(PORT, () => {
   console.log(`🌐 Using Qobuz proxy: https://qobuz-proxy.authme.workers.dev`);
   console.log(`📁 Build path: ${buildPath}`);
   console.log(`📥 Music directory: ${process.env.DOWNLOAD_PATH || '/app/music'}`);
-  console.log(`🚀 Ready for downloads!`);
+  console.log(`🚀 Ready for downloads with FFmpeg processing!`);
   
   // Ensure directories exist
   fs.ensureDirSync(process.env.DOWNLOAD_PATH || '/app/music');
