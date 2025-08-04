@@ -9,6 +9,7 @@ const SearchPage = ({ onDownload, showToast }) => {
   const [quality, setQuality] = useState(7);
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [downloadingTracks, setDownloadingTracks] = useState(new Set());
 
   const qualityOptions = [
     { value: 5, label: 'MP3 320k' },
@@ -44,6 +45,29 @@ const SearchPage = ({ onDownload, showToast }) => {
       await onDownload(type, id, quality);
     } catch (error) {
       console.error('Download error:', error);
+    }
+  };
+
+  const handleTrackDownload = async (track) => {
+    setDownloadingTracks(prev => new Set([...prev, track.id]));
+    try {
+      // Pass track data along with the download request
+      const response = await axios.post('/api/download/track', {
+        trackId: track.id,
+        quality: quality,
+        trackData: track // Include the full track data
+      });
+      showToast('Track download started!', 'success');
+    } catch (error) {
+      const errorMessage = error.response?.data?.error || 'Download failed';
+      console.error('Download error:', error);
+      showToast(errorMessage, 'error');
+    } finally {
+      setDownloadingTracks(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(track.id);
+        return newSet;
+      });
     }
   };
 
@@ -119,11 +143,17 @@ const SearchPage = ({ onDownload, showToast }) => {
           <button 
             onClick={() => {
               console.log(`Downloading track ID: ${track.id} from search results`);
-              handleDownload('track', track.id);
+              console.log(`Track data:`, track);
+              handleTrackDownload(track);
             }}
+            disabled={downloadingTracks.has(track.id)}
             className="btn btn-primary"
           >
-            <Download size={16} />
+            {downloadingTracks.has(track.id) ? (
+              <div className="spinner" style={{ width: '14px', height: '14px', margin: 0, marginRight: '0.5rem' }}></div>
+            ) : (
+              <Download size={16} />
+            )}
             Download
           </button>
         </div>
