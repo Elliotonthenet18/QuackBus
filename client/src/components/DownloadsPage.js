@@ -25,18 +25,30 @@ const DownloadsPage = ({ downloads, onCancel }) => {
         return 'Queued';
       case 'downloading':
         if (download.type === 'album') {
-          return `Downloading (${download.completedTracks || 0}/${download.totalTracks || 0} tracks)`;
+          return download.currentTrack ? 
+            `Downloading: ${download.currentTrack}` : 
+            `Downloading (${download.completedTracks || 0}/${download.totalTracks || 0} tracks)`;
         }
         return `Downloading (${download.progress || 0}%)`;
       case 'processing':
         return 'Processing metadata...';
       case 'completed':
+        if (download.type === 'album') {
+          const failed = download.failedTracks || 0;
+          const completed = download.completedTracks || 0;
+          return failed > 0 ? 
+            `Completed (${failed} failed)` : 
+            `Completed (${completed} tracks)`;
+        }
         return 'Completed';
       case 'failed':
         return 'Failed';
       case 'cancelled':
         return 'Cancelled';
       default:
+        if (download.status && download.status.startsWith('downloading track')) {
+          return download.status;
+        }
         return 'Unknown';
     }
   };
@@ -95,7 +107,7 @@ const DownloadsPage = ({ downloads, onCancel }) => {
                   </div>
                 )}
                 
-                {(download.status === 'downloading' || download.status === 'processing') && (
+                {(download.status === 'downloading' || download.status === 'processing' || download.status?.startsWith('downloading track')) && (
                   <div className="progress-bar">
                     <div 
                       className="progress-fill" 
@@ -107,12 +119,17 @@ const DownloadsPage = ({ downloads, onCancel }) => {
                 {download.type === 'album' && download.totalTracks && (
                   <div style={{ fontSize: '0.8rem', color: '#888', marginTop: '0.25rem' }}>
                     Track progress: {download.completedTracks || 0} / {download.totalTracks}
+                    {download.failedTracks > 0 && (
+                      <span style={{ color: '#ef4444', marginLeft: '0.5rem' }}>
+                        ({download.failedTracks} failed)
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
               
               <div className="download-actions">
-                {(download.status === 'queued' || download.status === 'downloading') && (
+                {(download.status === 'queued' || download.status === 'downloading' || download.status?.startsWith('downloading track')) && (
                   <button 
                     onClick={() => onCancel(download.id)}
                     className="btn btn-danger"
