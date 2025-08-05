@@ -1,4 +1,48 @@
-require('dotenv').config();
+// Download a single track as part of an album download to temp folder
+async function downloadSingleTrackForAlbumToTemp(trackDownloadId, track, album, fileUrl, quality, tempAlbumDir) {
+  let tempFilePath = null;
+  
+  try {
+    // Step 1: Download file
+    const response = await fetch(fileUrl);
+    if (!response.ok) {
+      throw new Error(`File download failed: ${response.status}`);
+    }
+    
+    const totalSize = parseInt(response.headers.get('content-length') || '0');
+    console.log(`📊 File size: ${Math.round(totalSize / 1024 / 1024)} MB`);
+    
+    // Step 2: Prepare file paths
+    const extensions = { 5: 'mp3', 6: 'flac', 7: 'flac', 27: 'flac' };
+    const extension = extensions[quality] || 'flac';
+    
+    // Sanitize function for filenames
+    const sanitize = (str) => {
+      if (!str) return 'Unknown';
+      return str
+        .replace(/[<>:"/\\|?*]/g, '') // Remove invalid chars
+        .replace(/\s+/g, ' ')         // Single spaces
+        .trim()
+        .substring(0, 80);            // Reasonable length
+    };
+    
+    // Build metadata with fallbacks
+    const trackTitle = sanitize(track?.title || 'Unknown Track');
+    const trackNumber = String(track?.track_number || track?.trackNumber || 1).padStart(2, '0');
+    const fileName = `${trackNumber} - ${trackTitle}.${extension}`;
+    
+    // Use temp album directory for both temp file and final file
+    tempFilePath = path.join(tempAlbumDir, `temp_${trackDownloadId}.${extension}`);
+    const finalFilePath = path.join(tempAlbumDir, fileName);
+    
+    console.log(`📄 File: ${fileName}`);
+    
+    // Step 3: Write to temp file in album directory
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    await fs.writeFile(tempFilePath, buffer);
+    console.log(`✅ Downloaded to temp: ${buffer.length} bytes`);
+    require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -399,7 +443,7 @@ app.post('/api/download/album', async (req, res) => {
 
 // [Rest of the functions remain largely the same, but I'll update the key ones]
 
-// Album download function - downloads each track individually
+// Album download function - downloads to temp first, then moves entire album
 async function startAlbumDownload(downloadId, albumId, album, quality) {
   try {
     console.log(`\n🚀 === STARTING ALBUM DOWNLOAD ${downloadId} ===`);
@@ -425,7 +469,41 @@ async function startAlbumDownload(downloadId, albumId, album, quality) {
     activeDownloads.set(downloadId, albumDownloadInfo);
     broadcast({ type: 'download_update', data: albumDownloadInfo });
     
-    // Download each track one by one
+    // Create album folder in TEMP directory first
+    const sanitize = (str) => {
+      if (!str) return 'Unknown';
+      return str
+        .replace(/[<>:"/\\|?*]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .substring(0, 80);
+    };
+    
+    const artistName = sanitize(album.artist?.name || 'Unknown Artist');
+    const albumTitle = sanitize(album.title || 'Unknown Album');
+    let year = '';
+    if (album.release_date_original) {
+      try {
+        year = new Date(album.release_date_original).getFullYear();
+      } catch (e) {
+        console.log(`⚠️ Could not parse year from: ${album.release_date_original}`);
+      }
+    }
+    
+    const albumFolderName = year ? `${artistName} - ${albumTitle} (${year})` : `${artistName} - ${albumTitle}`;
+    const tempAlbumDir = path.join(process.env.TEMP_PATH || '/app/temp', `album_${downloadId}`, albumFolderName);
+    const finalAlbumDir = path.join(process.env.DOWNLOAD_PATH || '/app/music', albumFolderName);
+    
+    console.log(`📁 Temp album directory: ${tempAlbumDir}`);
+    console.log(`📁 Final album directory: ${finalAlbumDir}`);
+    
+    // Create temp album directory
+    await fs.ensureDir(tempAlbumDir);
+    
+    // Download album artwork to temp folder
+    await downloadAlbumArtwork(album, tempAlbumDir);
+    
+    // Download each track to temp folder
     for (let i = 0; i < album.tracks.items.length; i++) {
       const track = album.tracks.items[i];
       
@@ -457,9 +535,9 @@ async function startAlbumDownload(downloadId, albumId, album, quality) {
           continue;
         }
         
-        // Download and process this track
+        // Download and process this track in temp folder
         const trackDownloadId = `${downloadId}_track_${track.id}`;
-        await downloadSingleTrackForAlbum(trackDownloadId, track, album, data.url, quality);
+        await downloadSingleTrackForAlbumToTemp(trackDownloadId, track, album, data.url, quality, tempAlbumDir);
         
         // Update album progress
         albumDownloadInfo.completedTracks++;
@@ -478,21 +556,58 @@ async function startAlbumDownload(downloadId, albumId, album, quality) {
       }
     }
     
+    // All tracks downloaded to temp - now move the entire album folder
+    albumDownloadInfo.status = 'moving files';
+    broadcast({ type: 'download_update', data: albumDownloadInfo });
+    
+    console.log(`📦 Moving entire album from temp to final location...`);
+    console.log(`📂 From: ${tempAlbumDir}`);
+    console.log(`📂 To: ${finalAlbumDir}`);
+    
+    try {
+      // Ensure final music directory exists
+      await fs.ensureDir(path.dirname(finalAlbumDir));
+      
+      // Move the entire album folder from temp to final location
+      await fs.move(tempAlbumDir, finalAlbumDir, { overwrite: true });
+      
+      // Set final permissions on the moved album folder
+      await setFinalAlbumPermissions(finalAlbumDir);
+      
+      console.log(`✅ Album moved successfully to final location`);
+      
+      // Clean up temp album directory structure
+      const tempAlbumRoot = path.join(process.env.TEMP_PATH || '/app/temp', `album_${downloadId}`);
+      try {
+        await fs.remove(tempAlbumRoot);
+        console.log(`🧹 Cleaned up temp album directory`);
+      } catch (cleanupError) {
+        console.log(`⚠️ Could not clean up temp directory:`, cleanupError.message);
+      }
+      
+    } catch (moveError) {
+      console.error(`❌ Failed to move album folder:`, moveError.message);
+      // If move fails, try to copy instead
+      try {
+        await fs.copy(tempAlbumDir, finalAlbumDir, { overwrite: true });
+        await fs.remove(tempAlbumDir);
+        await setFinalAlbumPermissions(finalAlbumDir);
+        console.log(`✅ Album copied successfully to final location`);
+      } catch (copyError) {
+        console.error(`❌ Failed to copy album folder:`, copyError.message);
+        throw copyError;
+      }
+    }
+    
     // Album download complete
     albumDownloadInfo.status = 'completed';
     albumDownloadInfo.progress = 100;
     albumDownloadInfo.endTime = new Date().toISOString();
     
-    // Set final permissions on the entire album folder
-    const albumFolderName = album.tracks.items.length > 0 ? 
-      getAlbumFolderName(album.tracks.items[0], album) : 
-      `${sanitize(album.artist?.name)} - ${sanitize(album.title)}`;
-    const albumDir = path.join(process.env.DOWNLOAD_PATH || '/app/music', albumFolderName);
-    await setFinalAlbumPermissions(albumDir);
-    
     console.log(`✅ === ALBUM DOWNLOAD COMPLETED ===`);
     console.log(`📊 Completed: ${albumDownloadInfo.completedTracks}/${album.tracks.items.length} tracks`);
     console.log(`📊 Failed: ${albumDownloadInfo.failedTracks} tracks`);
+    console.log(`📂 Final location: ${finalAlbumDir}`);
     console.log(`⏱️ Duration: ${((new Date() - new Date(albumDownloadInfo.startTime)) / 1000).toFixed(1)}s\n`);
     
     // Add to history
@@ -524,6 +639,15 @@ async function startAlbumDownload(downloadId, albumId, album, quality) {
       setTimeout(() => {
         activeDownloads.delete(downloadId);
       }, 20000);
+    }
+    
+    // Clean up temp folder on failure
+    const tempAlbumRoot = path.join(process.env.TEMP_PATH || '/app/temp', `album_${downloadId}`);
+    try {
+      await fs.remove(tempAlbumRoot);
+      console.log(`🧹 Cleaned up temp directory after failure`);
+    } catch (cleanupError) {
+      console.log(`⚠️ Could not clean up temp directory:`, cleanupError.message);
     }
   }
 }
@@ -758,30 +882,26 @@ async function downloadSingleTrackForAlbum(trackDownloadId, track, album, fileUr
     await fs.ensureDir(tempDir);
     await fs.ensureDir(albumDir);
     
-    // Step 4: Download album artwork (only once per album)
-    await downloadAlbumArtwork(album, albumDir);
-    
-    // Step 5: Write to temp file
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    await fs.writeFile(tempFilePath, buffer);
-    console.log(`✅ Downloaded to temp: ${buffer.length} bytes`);
-    
-    // Step 6: Process with FFmpeg
+    // Step 4: Process with FFmpeg
     console.log(`🔧 Processing with FFmpeg...`);
     await processWithFFmpeg(tempFilePath, finalFilePath, track, album);
     console.log(`✅ FFmpeg completed`);
     
-    // Step 7: Clean up temp file
+    // Step 5: Clean up temp file
     if (tempFilePath && await fs.pathExists(tempFilePath)) {
       await fs.remove(tempFilePath);
       console.log(`🧹 Cleaned up temp file`);
     }
     
-    // Step 8: Set user-friendly permissions
-    await setUserFriendlyPermissions(finalFilePath, albumDir);
+    // Step 6: Set permissions for the processed file (in temp album directory)
+    try {
+      await fs.chmod(finalFilePath, 0o666); // rw-rw-rw-
+      console.log(`📋 Set permissions for: ${fileName}`);
+    } catch (permError) {
+      console.log(`⚠️ Could not set permissions for ${fileName}:`, permError.message);
+    }
     
-    console.log(`✅ Track completed: ${finalFilePath}`);
+    console.log(`✅ Track completed in temp folder: ${finalFilePath}`);
     
   } catch (error) {
     console.error(`❌ Track download failed: ${error.message}`);
@@ -1049,7 +1169,15 @@ app.get('/api/downloads', (req, res) => {
 
 // Download history endpoint
 app.get('/api/history', (req, res) => {
-  res.json(downloadHistory);
+  try {
+    console.log(`📚 History request - returning ${downloadHistory.length} items`);
+    console.log(`📚 Sample history item:`, downloadHistory[0] ? JSON.stringify(downloadHistory[0], null, 2) : 'No items');
+    
+    res.json(downloadHistory);
+  } catch (error) {
+    console.error('❌ History endpoint error:', error);
+    res.status(500).json({ error: 'Failed to get history', details: error.message });
+  }
 });
 
 // Cancel download
