@@ -400,6 +400,13 @@ async function startAlbumDownload(downloadId, albumId, album, quality) {
     albumDownloadInfo.progress = 100;
     albumDownloadInfo.endTime = new Date().toISOString();
     
+    // Set final permissions on the entire album folder
+    const albumFolderName = album.tracks.items.length > 0 ? 
+      getAlbumFolderName(album.tracks.items[0], album) : 
+      `${sanitize(album.artist?.name)} - ${sanitize(album.title)}`;
+    const albumDir = path.join(process.env.DOWNLOAD_PATH || '/app/music', albumFolderName);
+    await setFinalAlbumPermissions(albumDir);
+    
     console.log(`✅ === ALBUM DOWNLOAD COMPLETED ===`);
     console.log(`📊 Completed: ${albumDownloadInfo.completedTracks}/${album.tracks.items.length} tracks`);
     console.log(`📊 Failed: ${albumDownloadInfo.failedTracks} tracks`);
@@ -519,6 +526,15 @@ async function downloadSingleTrackForAlbum(trackDownloadId, track, album, fileUr
       console.log(`🧹 Cleaned up temp file`);
     }
     
+    // Step 7: Clean up temp file
+    if (tempFilePath && await fs.pathExists(tempFilePath)) {
+      await fs.remove(tempFilePath);
+      console.log(`🧹 Cleaned up temp file`);
+    }
+    
+    // Step 8: Set user-friendly permissions
+    await setUserFriendlyPermissions(finalFilePath, albumDir);
+    
     console.log(`✅ Track completed: ${finalFilePath}`);
     
   } catch (error) {
@@ -572,6 +588,10 @@ async function downloadAlbumArtwork(album, albumDir) {
     const buffer = Buffer.from(imageBuffer);
     
     await fs.writeFile(coverPath, buffer);
+    
+    // Set user-friendly permissions for the cover image
+    await fs.chmod(coverPath, 0o666); // rw-rw-rw-
+    
     console.log(`✅ Album artwork saved: Cover.jpg (${Math.round(buffer.length / 1024)} KB)`);
     
     return coverPath;
@@ -580,6 +600,91 @@ async function downloadAlbumArtwork(album, albumDir) {
     console.error(`❌ Failed to download album artwork:`, error.message);
     return null;
   }
+}
+
+// Function to set user-friendly permissions on downloaded files and folders
+async function setUserFriendlyPermissions(filePath, albumDir) {
+  try {
+    // Set file permissions to 666 (rw-rw-rw-) - readable/writable by everyone
+    if (await fs.pathExists(filePath)) {
+      await fs.chmod(filePath, 0o666);
+      console.log(`📋 Set file permissions: ${path.basename(filePath)}`);
+    }
+    
+    // Set folder permissions to 777 (rwxrwxrwx) - full access for everyone
+    if (await fs.pathExists(albumDir)) {
+      await fs.chmod(albumDir, 0o777);
+      console.log(`📁 Set folder permissions: ${path.basename(albumDir)}`);
+    }
+    
+    // Also set permissions on Cover.jpg if it exists
+    const coverPath = path.join(albumDir, 'Cover.jpg');
+    if (await fs.pathExists(coverPath)) {
+      await fs.chmod(coverPath, 0o666);
+      console.log(`🖼️ Set cover permissions: Cover.jpg`);
+    }
+    
+  } catch (error) {
+    console.log(`⚠️ Could not set permissions:`, error.message);
+    // Don't throw error - permissions are nice to have but not critical
+  }
+}
+
+// Function to set final permissions on entire album folder and all contents
+async function setFinalAlbumPermissions(albumDir) {
+  try {
+    if (!await fs.pathExists(albumDir)) return;
+    
+    console.log(`📁 Setting final permissions for album folder...`);
+    
+    // Set folder permissions
+    await fs.chmod(albumDir, 0o777);
+    
+    // Get all files in the folder
+    const files = await fs.readdir(albumDir);
+    
+    // Set permissions on all files
+    for (const file of files) {
+      const filePath = path.join(albumDir, file);
+      const stats = await fs.stat(filePath);
+      
+      if (stats.isFile()) {
+        await fs.chmod(filePath, 0o666); // Files: rw-rw-rw-
+        console.log(`📋 Set permissions: ${file}`);
+      }
+    }
+    
+    console.log(`✅ Final permissions set for ${files.length} files`);
+    
+  } catch (error) {
+    console.log(`⚠️ Could not set final album permissions:`, error.message);
+  }
+}
+
+// Helper function to get album folder name (for permission setting)
+function getAlbumFolderName(track, album) {
+  const sanitize = (str) => {
+    if (!str) return 'Unknown';
+    return str
+      .replace(/[<>:"/\\|?*]/g, '') // Remove invalid chars
+      .replace(/\s+/g, ' ')         // Single spaces
+      .trim()
+      .substring(0, 80);            // Reasonable length
+  };
+  
+  const artistName = sanitize(track?.performer?.name || album?.artist?.name || 'Unknown Artist');
+  const albumTitle = sanitize(album?.title || 'Unknown Album');
+  
+  let year = '';
+  if (album?.release_date_original) {
+    try {
+      year = new Date(album.release_date_original).getFullYear();
+    } catch (e) {
+      // Ignore date parsing errors
+    }
+  }
+  
+  return year ? `${artistName} - ${albumTitle} (${year})` : `${artistName} - ${albumTitle}`;
 }
 
 // Main download function with FFmpeg processing
