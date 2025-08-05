@@ -41,16 +41,36 @@ const AlbumDetailPage = ({ onDownload, showToast }) => {
     }
   };
 
-  const handleDownloadTrack = async (trackId) => {
-    setDownloadingTracks(prev => new Set([...prev, trackId]));
+  const handleDownloadTrack = async (track) => {
+    setDownloadingTracks(prev => new Set([...prev, track.id]));
     try {
-      await onDownload('track', trackId, quality);
+      // Transform track data to match the new API format
+      const trackData = {
+        id: track.id,
+        title: track.title,
+        artist: track.performer?.name || album.artist?.name,
+        albumTitle: album.title,
+        albumCover: album.image?.large,
+        albumId: album.id,
+        releaseDate: album.release_date_original,
+        duration: track.duration,
+        trackNumber: track.track_number || track.trackNumber
+      };
+
+      const response = await axios.post('/api/download/track', {
+        trackId: track.id,
+        quality: quality,
+        trackData: trackData
+      });
+      showToast('Track download started!', 'success');
     } catch (error) {
-      console.error('Track download error:', error);
+      const errorMessage = error.response?.data?.error || 'Download failed';
+      console.error('Download error:', error);
+      showToast(errorMessage, 'error');
     } finally {
       setDownloadingTracks(prev => {
         const newSet = new Set(prev);
-        newSet.delete(trackId);
+        newSet.delete(track.id);
         return newSet;
       });
     }
@@ -120,7 +140,7 @@ const AlbumDetailPage = ({ onDownload, showToast }) => {
       <div className="card" style={{ marginBottom: '2rem' }}>
         <div style={{ display: 'flex', gap: '2rem', alignItems: 'flex-start' }}>
           <img 
-            src={album.image?.large || album.image?.medium || '/placeholder-album.png'} 
+            src={album.image?.large || album.cover || '/placeholder-album.png'} 
             alt={album.title}
             style={{ 
               width: '200px', 
@@ -137,7 +157,7 @@ const AlbumDetailPage = ({ onDownload, showToast }) => {
             </h1>
             
             <h2 style={{ fontSize: '1.5rem', color: '#0ea5e9', marginBottom: '1rem' }}>
-              {album.artist?.name}
+              {album.artist?.name || album.artist}
             </h2>
             
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
@@ -241,7 +261,7 @@ const AlbumDetailPage = ({ onDownload, showToast }) => {
                   color: '#888',
                   fontWeight: '600'
                 }}>
-                  {track.track_number || index + 1}
+                  {track.track_number || track.trackNumber || index + 1}
                 </div>
                 
                 <div style={{ flex: 1 }}>
@@ -251,6 +271,11 @@ const AlbumDetailPage = ({ onDownload, showToast }) => {
                   {track.performer?.name && track.performer.name !== album.artist?.name && (
                     <div style={{ color: '#0ea5e9', fontSize: '0.9rem' }}>
                       {track.performer.name}
+                    </div>
+                  )}
+                  {track.artist && track.artist !== album.artist?.name && (
+                    <div style={{ color: '#0ea5e9', fontSize: '0.9rem' }}>
+                      {track.artist}
                     </div>
                   )}
                 </div>
@@ -264,7 +289,7 @@ const AlbumDetailPage = ({ onDownload, showToast }) => {
                 <button 
                   onClick={() => {
                     console.log(`Downloading track ID: ${track.id} from album ${album.id}`);
-                    handleDownloadTrack(track.id);
+                    handleDownloadTrack(track);
                   }}
                   disabled={downloadingTracks.has(track.id)}
                   className="btn btn-secondary"
