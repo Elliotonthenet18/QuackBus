@@ -215,9 +215,11 @@ app.get('/api/album/:id', async (req, res) => {
         genre: {
           name: album.genre
         },
-        label: {
-          name: album.label || 'Unknown Label'
-        },
+        ...(album.label && {
+          label: {
+            name: album.label
+          }
+        }),
         tracks: {
           items: (album.tracks || []).map(track => ({
             id: track.id,
