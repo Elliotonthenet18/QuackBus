@@ -193,32 +193,49 @@ app.get('/api/album/:id', async (req, res) => {
     }
     
     const albumData = await response.json();
-    console.log(`📊 Album data received for: ${albumData.title || 'Unknown Album'}`);
+    console.log(`📊 Album data received for: ${albumData.album?.title || 'Unknown Album'}`);
+    
+    // Extract the actual album data from the nested structure
+    const album = albumData.album;
     
     // Transform album data to match expected format
     const transformedAlbum = {
       album: {
-        id: albumData.id,
-        title: albumData.title,
+        id: album.id,
+        title: album.title,
         artist: {
-          name: albumData.artist
+          name: album.artist
         },
         image: {
-          large: albumData.cover,
-          medium: albumData.cover,
-          small: albumData.cover
+          large: album.cover,
+          medium: album.cover,
+          small: album.cover
         },
-        release_date_original: albumData.releaseDate,
+        release_date_original: album.releaseDate,
         genre: {
-          name: albumData.genre
+          name: album.genre
         },
         label: {
-          name: albumData.label
+          name: album.label || 'Unknown Label'
         },
         tracks: {
-          items: albumData.tracks || []
+          items: (album.tracks || []).map(track => ({
+            id: track.id,
+            title: track.title,
+            performer: {
+              name: track.artist
+            },
+            artist: track.artist,
+            track_number: track.trackNumber || 1,
+            duration: track.duration,
+            albumId: track.albumId,
+            albumTitle: track.albumTitle,
+            albumCover: track.albumCover
+          }))
         },
-        tracks_count: albumData.trackCount
+        tracks_count: album.trackCount || (album.tracks ? album.tracks.length : 0),
+        duration: album.duration,
+        audioQuality: album.audioQuality
       }
     };
     
@@ -323,26 +340,30 @@ app.post('/api/download/album', async (req, res) => {
     
     const albumData = await albumResponse.json();
     
-    if (!albumData.tracks || albumData.tracks.length === 0) {
+    // Extract the actual album data from the nested structure
+    const album = albumData.album;
+    
+    if (!album.tracks || album.tracks.length === 0) {
       return res.status(400).json({ error: 'No tracks found in album' });
     }
     
-    console.log(`📊 Album: "${albumData.title}" by ${albumData.artist}`);
-    console.log(`📊 Found ${albumData.tracks.length} tracks in album`);
+    console.log(`📊 Album: "${album.title}" by ${album.artist}`);
+    console.log(`📊 Found ${album.tracks.length} tracks in album`);
     
-    // Transform album data to expected format
-    const album = {
-      id: albumData.id,
-      title: albumData.title,
-      artist: { name: albumData.artist },
-      image: { large: albumData.cover },
-      release_date_original: albumData.releaseDate,
+    // Transform album data to expected format for internal processing
+    const transformedAlbum = {
+      id: album.id,
+      title: album.title,
+      artist: { name: album.artist },
+      image: { large: album.cover },
+      release_date_original: album.releaseDate,
       tracks: {
-        items: albumData.tracks.map(track => ({
+        items: album.tracks.map(track => ({
           id: track.id,
           title: track.title,
           performer: { name: track.artist },
-          track_number: track.trackNumber,
+          artist: track.artist,
+          track_number: track.trackNumber || 1,
           duration: track.duration
         }))
       }
@@ -352,14 +373,14 @@ app.post('/api/download/album', async (req, res) => {
     
     // Start the album download process
     setImmediate(() => {
-      startAlbumDownload(downloadId, albumId, album, quality);
+      startAlbumDownload(downloadId, albumId, transformedAlbum, quality);
     });
     
     res.json({ 
       downloadId,
       message: 'Album download started',
       albumId: albumId,
-      trackCount: album.tracks.items.length,
+      trackCount: transformedAlbum.tracks.items.length,
       quality: quality
     });
     
