@@ -1,48 +1,4 @@
-// Download a single track as part of an album download to temp folder
-async function downloadSingleTrackForAlbumToTemp(trackDownloadId, track, album, fileUrl, quality, tempAlbumDir) {
-  let tempFilePath = null;
-  
-  try {
-    // Step 1: Download file
-    const response = await fetch(fileUrl);
-    if (!response.ok) {
-      throw new Error(`File download failed: ${response.status}`);
-    }
-    
-    const totalSize = parseInt(response.headers.get('content-length') || '0');
-    console.log(`📊 File size: ${Math.round(totalSize / 1024 / 1024)} MB`);
-    
-    // Step 2: Prepare file paths
-    const extensions = { 5: 'mp3', 6: 'flac', 7: 'flac', 27: 'flac' };
-    const extension = extensions[quality] || 'flac';
-    
-    // Sanitize function for filenames
-    const sanitize = (str) => {
-      if (!str) return 'Unknown';
-      return str
-        .replace(/[<>:"/\\|?*]/g, '') // Remove invalid chars
-        .replace(/\s+/g, ' ')         // Single spaces
-        .trim()
-        .substring(0, 80);            // Reasonable length
-    };
-    
-    // Build metadata with fallbacks
-    const trackTitle = sanitize(track?.title || 'Unknown Track');
-    const trackNumber = String(track?.track_number || track?.trackNumber || 1).padStart(2, '0');
-    const fileName = `${trackNumber} - ${trackTitle}.${extension}`;
-    
-    // Use temp album directory for both temp file and final file
-    tempFilePath = path.join(tempAlbumDir, `temp_${trackDownloadId}.${extension}`);
-    const finalFilePath = path.join(tempAlbumDir, fileName);
-    
-    console.log(`📄 File: ${fileName}`);
-    
-    // Step 3: Write to temp file in album directory
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    await fs.writeFile(tempFilePath, buffer);
-    console.log(`✅ Downloaded to temp: ${buffer.length} bytes`);
-    require('dotenv').config();
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -100,8 +56,9 @@ function addToHistory(downloadInfo, track, album) {
   const historyItem = {
     id: downloadInfo.id,
     trackId: downloadInfo.trackId,
-    title: track?.title || album?.title || 'Unknown Track',
-    artist: track?.artist || album?.artist || 'Unknown Artist',
+    type: downloadInfo.type || 'track', // Make sure type is set
+    title: track?.title || album?.title || downloadInfo.title || 'Unknown Track',
+    artist: track?.artist || track?.performer?.name || album?.artist?.name || album?.artist || downloadInfo.artist || 'Unknown Artist',
     album: album?.title || track?.albumTitle || 'Unknown Album',
     quality: getQualityName(downloadInfo.quality),
     status: downloadInfo.status,
@@ -112,6 +69,8 @@ function addToHistory(downloadInfo, track, album) {
     duration: downloadInfo.endTime && downloadInfo.startTime ? 
       Math.round((new Date(downloadInfo.endTime) - new Date(downloadInfo.startTime)) / 1000) : null
   };
+  
+  console.log(`📚 Adding to history:`, JSON.stringify(historyItem, null, 2));
   
   // Add to beginning of array (newest first)
   downloadHistory.unshift(historyItem);
@@ -441,8 +400,6 @@ app.post('/api/download/album', async (req, res) => {
   }
 });
 
-// [Rest of the functions remain largely the same, but I'll update the key ones]
-
 // Album download function - downloads to temp first, then moves entire album
 async function startAlbumDownload(downloadId, albumId, album, quality) {
   try {
@@ -652,177 +609,8 @@ async function startAlbumDownload(downloadId, albumId, album, quality) {
   }
 }
 
-// [Include all the other existing functions like downloadSingleTrackForAlbum, 
-// downloadAlbumArtwork, setUserFriendlyPermissions, etc. - they remain mostly the same]
-
-// Main download function with FFmpeg processing
-async function startFileDownloadWithProcessing(downloadId, trackId, fileUrl, quality, track, album) {
-  let tempFilePath = null;
-  
-  try {
-    console.log(`\n🚀 === STARTING DOWNLOAD ${downloadId} ===`);
-    console.log(`📥 Track ID: ${trackId}`);
-    console.log(`🎵 Track: "${track?.title || 'Unknown'}" by ${track?.artist || 'Unknown'}`);
-    console.log(`💿 Album: "${album?.title || 'Unknown'}" by ${album?.artist?.name || 'Unknown'}`);
-    
-    const downloadInfo = {
-      id: downloadId,
-      trackId,
-      quality,
-      status: 'downloading',
-      progress: 0,
-      startTime: new Date().toISOString(),
-      title: track?.title || `Track ${trackId}`,
-      artist: track?.artist || album?.artist?.name || 'Unknown Artist'
-    };
-    
-    activeDownloads.set(downloadId, downloadInfo);
-    broadcast({ type: 'download_update', data: downloadInfo });
-    
-    // Step 1: Download file
-    console.log(`📡 Downloading file...`);
-    const response = await fetch(fileUrl);
-    if (!response.ok) {
-      throw new Error(`File download failed: ${response.status}`);
-    }
-    
-    const totalSize = parseInt(response.headers.get('content-length') || '0');
-    console.log(`📊 File size: ${Math.round(totalSize / 1024 / 1024)} MB`);
-    
-    // Step 2: Prepare file paths
-    const extensions = { 5: 'mp3', 6: 'flac', 7: 'flac', 27: 'flac' };
-    const extension = extensions[quality] || 'flac';
-    
-    // Sanitize function for filenames
-    const sanitize = (str) => {
-      if (!str) return 'Unknown';
-      return str
-        .replace(/[<>:"/\\|?*]/g, '') // Remove invalid chars
-        .replace(/\s+/g, ' ')         // Single spaces
-        .trim()
-        .substring(0, 80);            // Reasonable length
-    };
-    
-    // Build metadata with fallbacks
-    const trackTitle = sanitize(track?.title || 'Unknown Track');
-    const artistName = sanitize(track?.artist || album?.artist?.name || 'Unknown Artist');
-    const albumTitle = sanitize(album?.title || track?.albumTitle || 'Unknown Album');
-    const trackNumber = String(track?.trackNumber || 1).padStart(2, '0');
-    
-    // Get year
-    let year = '';
-    if (album?.release_date_original || track?.releaseDate) {
-      try {
-        year = new Date(album?.release_date_original || track?.releaseDate).getFullYear();
-      } catch (e) {
-        console.log(`⚠️ Could not parse year from: ${album?.release_date_original || track?.releaseDate}`);
-      }
-    }
-    
-    // Create final paths
-    const albumFolderName = year ? `${artistName} - ${albumTitle} (${year})` : `${artistName} - ${albumTitle}`;
-    const fileName = `${trackNumber} - ${trackTitle}.${extension}`;
-    
-    const musicDir = process.env.DOWNLOAD_PATH || '/app/music';
-    const tempDir = process.env.TEMP_PATH || '/app/temp';
-    const albumDir = path.join(musicDir, albumFolderName);
-    
-    tempFilePath = path.join(tempDir, `${downloadId}.${extension}`);
-    const finalFilePath = path.join(albumDir, fileName);
-    
-    console.log(`📁 Album folder: ${albumFolderName}`);
-    console.log(`📄 File name: ${fileName}`);
-    console.log(`🎯 Final path: ${finalFilePath}`);
-    
-    // Step 3: Create directories
-    await fs.ensureDir(tempDir);
-    await fs.ensureDir(albumDir);
-    console.log(`✅ Created directories`);
-    
-    // Step 4: Download album artwork
-    await downloadAlbumArtwork(album || { image: { large: track?.albumCover } }, albumDir);
-    
-    // Step 5: Write to temp file
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    await fs.writeFile(tempFilePath, buffer);
-    console.log(`✅ Downloaded to temp file: ${buffer.length} bytes`);
-    
-    // Update progress
-    downloadInfo.progress = 50;
-    downloadInfo.status = 'processing';
-    downloadInfo.fileSize = buffer.length;
-    broadcast({ type: 'download_update', data: downloadInfo });
-    
-    // Step 6: Process with FFmpeg
-    console.log(`🔧 Starting FFmpeg processing...`);
-    await processWithFFmpeg(tempFilePath, finalFilePath, track, album);
-    console.log(`✅ FFmpeg processing completed`);
-    
-    // Step 7: Clean up temp file
-    if (tempFilePath && await fs.pathExists(tempFilePath)) {
-      await fs.remove(tempFilePath);
-      console.log(`🧹 Cleaned up temp file`);
-    }
-    
-    // Step 8: Complete
-    downloadInfo.status = 'completed';
-    downloadInfo.progress = 100;
-    downloadInfo.endTime = new Date().toISOString();
-    downloadInfo.filePath = finalFilePath;
-    
-    console.log(`✅ === DOWNLOAD COMPLETED ===`);
-    console.log(`📂 Final location: ${finalFilePath}`);
-    console.log(`⏱️ Duration: ${((new Date() - new Date(downloadInfo.startTime)) / 1000).toFixed(1)}s\n`);
-    
-    // Add to history
-    addToHistory(downloadInfo, track, album);
-    
-    broadcast({ type: 'download_update', data: downloadInfo });
-    
-    // Keep visible for 15 seconds
-    setTimeout(() => {
-      activeDownloads.delete(downloadId);
-      broadcast({ type: 'download_removed', data: { id: downloadId } });
-    }, 15000);
-    
-  } catch (error) {
-    console.error(`❌ === DOWNLOAD FAILED ===`);
-    console.error(`❌ Error:`, error.message);
-    console.error(`❌ Stack:`, error.stack);
-    
-    // Clean up temp file on error
-    if (tempFilePath) {
-      try {
-        if (await fs.pathExists(tempFilePath)) {
-          await fs.remove(tempFilePath);
-          console.log(`🧹 Cleaned up temp file after error`);
-        }
-      } catch (cleanupError) {
-        console.error(`❌ Failed to clean up temp file:`, cleanupError.message);
-      }
-    }
-    
-    const downloadInfo = activeDownloads.get(downloadId);
-    if (downloadInfo) {
-      downloadInfo.status = 'failed';
-      downloadInfo.error = error.message;
-      downloadInfo.endTime = new Date().toISOString();
-      
-      // Add failed download to history too
-      addToHistory(downloadInfo, track, album);
-      
-      broadcast({ type: 'download_update', data: downloadInfo });
-      
-      setTimeout(() => {
-        activeDownloads.delete(downloadId);
-      }, 15000);
-    }
-  }
-}
-
-// Download a single track as part of an album download
-async function downloadSingleTrackForAlbum(trackDownloadId, track, album, fileUrl, quality) {
+// Download a single track as part of an album download to temp folder
+async function downloadSingleTrackForAlbumToTemp(trackDownloadId, track, album, fileUrl, quality, tempAlbumDir) {
   let tempFilePath = null;
   
   try {
@@ -851,36 +639,20 @@ async function downloadSingleTrackForAlbum(trackDownloadId, track, album, fileUr
     
     // Build metadata with fallbacks
     const trackTitle = sanitize(track?.title || 'Unknown Track');
-    const artistName = sanitize(track?.performer?.name || track?.artist || album?.artist?.name || 'Unknown Artist');
-    const albumTitle = sanitize(album?.title || 'Unknown Album');
     const trackNumber = String(track?.track_number || track?.trackNumber || 1).padStart(2, '0');
-    
-    // Get year
-    let year = '';
-    if (album?.release_date_original) {
-      try {
-        year = new Date(album.release_date_original).getFullYear();
-      } catch (e) {
-        console.log(`⚠️ Could not parse year from: ${album.release_date_original}`);
-      }
-    }
-    
-    // Create final paths
-    const albumFolderName = year ? `${artistName} - ${albumTitle} (${year})` : `${artistName} - ${albumTitle}`;
     const fileName = `${trackNumber} - ${trackTitle}.${extension}`;
     
-    const musicDir = process.env.DOWNLOAD_PATH || '/app/music';
-    const tempDir = process.env.TEMP_PATH || '/app/temp';
-    const albumDir = path.join(musicDir, albumFolderName);
-    
-    tempFilePath = path.join(tempDir, `${trackDownloadId}.${extension}`);
-    const finalFilePath = path.join(albumDir, fileName);
+    // Use temp album directory for both temp file and final file
+    tempFilePath = path.join(tempAlbumDir, `temp_${trackDownloadId}.${extension}`);
+    const finalFilePath = path.join(tempAlbumDir, fileName);
     
     console.log(`📄 File: ${fileName}`);
     
-    // Step 3: Create directories
-    await fs.ensureDir(tempDir);
-    await fs.ensureDir(albumDir);
+    // Step 3: Write to temp file in album directory
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    await fs.writeFile(tempFilePath, buffer);
+    console.log(`✅ Downloaded to temp: ${buffer.length} bytes`);
     
     // Step 4: Process with FFmpeg
     console.log(`🔧 Processing with FFmpeg...`);
@@ -1054,6 +826,172 @@ function getAlbumFolderName(track, album) {
   }
   
   return year ? `${artistName} - ${albumTitle} (${year})` : `${artistName} - ${albumTitle}`;
+}
+
+// Main download function with FFmpeg processing
+async function startFileDownloadWithProcessing(downloadId, trackId, fileUrl, quality, track, album) {
+  let tempFilePath = null;
+  
+  try {
+    console.log(`\n🚀 === STARTING DOWNLOAD ${downloadId} ===`);
+    console.log(`📥 Track ID: ${trackId}`);
+    console.log(`🎵 Track: "${track?.title || 'Unknown'}" by ${track?.artist || 'Unknown'}`);
+    console.log(`💿 Album: "${album?.title || 'Unknown'}" by ${album?.artist?.name || 'Unknown'}`);
+    
+    const downloadInfo = {
+      id: downloadId,
+      trackId,
+      quality,
+      status: 'downloading',
+      progress: 0,
+      startTime: new Date().toISOString(),
+      title: track?.title || `Track ${trackId}`,
+      artist: track?.artist || album?.artist?.name || 'Unknown Artist'
+    };
+    
+    activeDownloads.set(downloadId, downloadInfo);
+    broadcast({ type: 'download_update', data: downloadInfo });
+    
+    // Step 1: Download file
+    console.log(`📡 Downloading file...`);
+    const response = await fetch(fileUrl);
+    if (!response.ok) {
+      throw new Error(`File download failed: ${response.status}`);
+    }
+    
+    const totalSize = parseInt(response.headers.get('content-length') || '0');
+    console.log(`📊 File size: ${Math.round(totalSize / 1024 / 1024)} MB`);
+    
+    // Step 2: Prepare file paths
+    const extensions = { 5: 'mp3', 6: 'flac', 7: 'flac', 27: 'flac' };
+    const extension = extensions[quality] || 'flac';
+    
+    // Sanitize function for filenames
+    const sanitize = (str) => {
+      if (!str) return 'Unknown';
+      return str
+        .replace(/[<>:"/\\|?*]/g, '') // Remove invalid chars
+        .replace(/\s+/g, ' ')         // Single spaces
+        .trim()
+        .substring(0, 80);            // Reasonable length
+    };
+    
+    // Build metadata with fallbacks
+    const trackTitle = sanitize(track?.title || 'Unknown Track');
+    const artistName = sanitize(track?.artist || album?.artist?.name || 'Unknown Artist');
+    const albumTitle = sanitize(album?.title || track?.albumTitle || 'Unknown Album');
+    const trackNumber = String(track?.trackNumber || 1).padStart(2, '0');
+    
+    // Get year
+    let year = '';
+    if (album?.release_date_original || track?.releaseDate) {
+      try {
+        year = new Date(album?.release_date_original || track?.releaseDate).getFullYear();
+      } catch (e) {
+        console.log(`⚠️ Could not parse year from: ${album?.release_date_original || track?.releaseDate}`);
+      }
+    }
+    
+    // Create final paths
+    const albumFolderName = year ? `${artistName} - ${albumTitle} (${year})` : `${artistName} - ${albumTitle}`;
+    const fileName = `${trackNumber} - ${trackTitle}.${extension}`;
+    
+    const musicDir = process.env.DOWNLOAD_PATH || '/app/music';
+    const tempDir = process.env.TEMP_PATH || '/app/temp';
+    const albumDir = path.join(musicDir, albumFolderName);
+    
+    tempFilePath = path.join(tempDir, `${downloadId}.${extension}`);
+    const finalFilePath = path.join(albumDir, fileName);
+    
+    console.log(`📁 Album folder: ${albumFolderName}`);
+    console.log(`📄 File name: ${fileName}`);
+    console.log(`🎯 Final path: ${finalFilePath}`);
+    
+    // Step 3: Create directories
+    await fs.ensureDir(tempDir);
+    await fs.ensureDir(albumDir);
+    console.log(`✅ Created directories`);
+    
+    // Step 4: Download album artwork
+    await downloadAlbumArtwork(album || { image: { large: track?.albumCover } }, albumDir);
+    
+    // Step 5: Write to temp file
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    await fs.writeFile(tempFilePath, buffer);
+    console.log(`✅ Downloaded to temp file: ${buffer.length} bytes`);
+    
+    // Update progress
+    downloadInfo.progress = 50;
+    downloadInfo.status = 'processing';
+    downloadInfo.fileSize = buffer.length;
+    broadcast({ type: 'download_update', data: downloadInfo });
+    
+    // Step 6: Process with FFmpeg
+    console.log(`🔧 Starting FFmpeg processing...`);
+    await processWithFFmpeg(tempFilePath, finalFilePath, track, album);
+    console.log(`✅ FFmpeg processing completed`);
+    
+    // Step 7: Clean up temp file
+    if (tempFilePath && await fs.pathExists(tempFilePath)) {
+      await fs.remove(tempFilePath);
+      console.log(`🧹 Cleaned up temp file`);
+    }
+    
+    // Step 8: Complete
+    downloadInfo.status = 'completed';
+    downloadInfo.progress = 100;
+    downloadInfo.endTime = new Date().toISOString();
+    downloadInfo.filePath = finalFilePath;
+    
+    console.log(`✅ === DOWNLOAD COMPLETED ===`);
+    console.log(`📂 Final location: ${finalFilePath}`);
+    console.log(`⏱️ Duration: ${((new Date() - new Date(downloadInfo.startTime)) / 1000).toFixed(1)}s\n`);
+    
+    // Add to history
+    addToHistory(downloadInfo, track, album);
+    
+    broadcast({ type: 'download_update', data: downloadInfo });
+    
+    // Keep visible for 15 seconds
+    setTimeout(() => {
+      activeDownloads.delete(downloadId);
+      broadcast({ type: 'download_removed', data: { id: downloadId } });
+    }, 15000);
+    
+  } catch (error) {
+    console.error(`❌ === DOWNLOAD FAILED ===`);
+    console.error(`❌ Error:`, error.message);
+    console.error(`❌ Stack:`, error.stack);
+    
+    // Clean up temp file on error
+    if (tempFilePath) {
+      try {
+        if (await fs.pathExists(tempFilePath)) {
+          await fs.remove(tempFilePath);
+          console.log(`🧹 Cleaned up temp file after error`);
+        }
+      } catch (cleanupError) {
+        console.error(`❌ Failed to clean up temp file:`, cleanupError.message);
+      }
+    }
+    
+    const downloadInfo = activeDownloads.get(downloadId);
+    if (downloadInfo) {
+      downloadInfo.status = 'failed';
+      downloadInfo.error = error.message;
+      downloadInfo.endTime = new Date().toISOString();
+      
+      // Add failed download to history too
+      addToHistory(downloadInfo, track, album);
+      
+      broadcast({ type: 'download_update', data: downloadInfo });
+      
+      setTimeout(() => {
+        activeDownloads.delete(downloadId);
+      }, 15000);
+    }
+  }
 }
 
 // FFmpeg processing function
