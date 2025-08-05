@@ -188,6 +188,26 @@ const AlbumDetailPage = ({ onDownload, showToast }) => {
                   {album.genre.name}
                 </div>
               )}
+
+              {album.audioQuality && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#888' }}>
+                  <Star size={16} />
+                  {album.audioQuality.maximumBitDepth}bit/{album.audioQuality.maximumSamplingRate}kHz
+                  {album.audioQuality.isHiRes && (
+                    <span style={{ 
+                      background: 'linear-gradient(45deg, #0ea5e9, #10b981)', 
+                      color: 'white', 
+                      padding: '2px 6px', 
+                      borderRadius: '4px', 
+                      fontSize: '0.7rem',
+                      fontWeight: 'bold',
+                      marginLeft: '0.25rem'
+                    }}>
+                      Hi-Res
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
 
             {album.label?.name && (
