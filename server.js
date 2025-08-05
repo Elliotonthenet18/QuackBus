@@ -12,6 +12,9 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 const PORT = process.env.PORT || 7277;
 
+// API base URL for the new service
+const API_BASE_URL = 'https://dab.yeet.su/api';
+
 // Active downloads tracking
 const activeDownloads = new Map();
 
@@ -48,9 +51,9 @@ function addToHistory(downloadInfo, track, album) {
   const historyItem = {
     id: downloadInfo.id,
     trackId: downloadInfo.trackId,
-    title: track?.title || 'Unknown Track',
-    artist: track?.performer?.name || album?.artist?.name || 'Unknown Artist',
-    album: album?.title || 'Unknown Album',
+    title: track?.title || album?.title || 'Unknown Track',
+    artist: track?.artist || album?.artist || 'Unknown Artist',
+    album: album?.title || track?.albumTitle || 'Unknown Album',
     quality: getQualityName(downloadInfo.quality),
     status: downloadInfo.status,
     startTime: downloadInfo.startTime,
@@ -125,10 +128,10 @@ app.get('/health', (req, res) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
-// Search for music
+// Search for music using new API
 app.get('/api/search', async (req, res) => {
   try {
-    const { query, type = 'albums', limit = 25 } = req.query;
+    const { query, type = 'album', limit = 25, offset = 0 } = req.query;
     
     if (!query) {
       return res.status(400).json({ error: 'Query parameter is required' });
@@ -136,14 +139,7 @@ app.get('/api/search', async (req, res) => {
 
     console.log(`🔍 Searching for: "${query}" (type: ${type})`);
     
-    // Use different endpoints based on search type
-    let searchUrl;
-    if (type === 'tracks') {
-      searchUrl = `https://qobuz-proxy.authme.workers.dev/api/search?query=${encodeURIComponent(query)}&type=tracks&limit=${limit}`;
-    } else {
-      searchUrl = `https://qobuz-proxy.authme.workers.dev/api/get-music?q=${encodeURIComponent(query)}&limit=${limit}`;
-    }
-    
+    const searchUrl = `${API_BASE_URL}/search?q=${encodeURIComponent(query)}&offset=${offset}&type=${type}&limit=${limit}`;
     console.log(`🌐 API call: ${searchUrl}`);
     
     const response = await fetch(searchUrl);
@@ -153,20 +149,23 @@ app.get('/api/search', async (req, res) => {
       throw new Error(`API error: ${response.status}`);
     }
     
-    console.log(`📊 Albums found: ${results.albums?.items?.length || 0}`);
-    console.log(`📊 Tracks found: ${results.tracks?.items?.length || 0}`);
+    console.log(`📊 ${type}s found: ${results[type + 's']?.length || 0}`);
     
-    // Ensure proper response format based on type requested
+    // Transform to match expected frontend format
     let searchResults;
-    if (type === 'tracks') {
+    if (type === 'track') {
       searchResults = {
-        tracks: results.tracks || { items: [] },
+        tracks: {
+          items: results.tracks || []
+        },
         albums: { items: [] }
       };
     } else {
       searchResults = {
-        albums: results.albums || { items: [] },
-        tracks: results.tracks || { items: [] }
+        albums: {
+          items: results.albums || []
+        },
+        tracks: { items: [] }
       };
     }
     
@@ -177,13 +176,13 @@ app.get('/api/search', async (req, res) => {
   }
 });
 
-// Get album details
+// Get album details using new API
 app.get('/api/album/:id', async (req, res) => {
   try {
     const { id } = req.params;
     console.log(`📀 Getting album: ${id}`);
     
-    const albumUrl = `https://qobuz-proxy.authme.workers.dev/api/get-album?album_id=${id}`;
+    const albumUrl = `${API_BASE_URL}/album?albumId=${id}`;
     console.log(`🌐 API call: ${albumUrl}`);
     
     const response = await fetch(albumUrl);
@@ -196,14 +195,41 @@ app.get('/api/album/:id', async (req, res) => {
     const albumData = await response.json();
     console.log(`📊 Album data received for: ${albumData.title || 'Unknown Album'}`);
     
-    res.json(albumData);
+    // Transform album data to match expected format
+    const transformedAlbum = {
+      album: {
+        id: albumData.id,
+        title: albumData.title,
+        artist: {
+          name: albumData.artist
+        },
+        image: {
+          large: albumData.cover,
+          medium: albumData.cover,
+          small: albumData.cover
+        },
+        release_date_original: albumData.releaseDate,
+        genre: {
+          name: albumData.genre
+        },
+        label: {
+          name: albumData.label
+        },
+        tracks: {
+          items: albumData.tracks || []
+        },
+        tracks_count: albumData.trackCount
+      }
+    };
+    
+    res.json(transformedAlbum);
   } catch (error) {
     console.error('❌ Album fetch error:', error);
     res.status(500).json({ error: 'Failed to fetch album', details: error.message });
   }
 });
 
-// Download track with real file download and progress
+// Download track with new API
 app.post('/api/download/track', async (req, res) => {
   try {
     const { trackId, quality = 7, trackData } = req.body;
@@ -217,12 +243,22 @@ app.post('/api/download/track', async (req, res) => {
 
     // Use provided track data from search results
     let track = trackData;
-    let album = trackData?.album;
+    let album = null;
 
-    console.log(`🎵 Track: "${track?.title}" by ${track?.performer?.name}`);
+    // If we have albumId in track data, create album object
+    if (track?.albumId) {
+      album = {
+        title: track.albumTitle,
+        artist: { name: track.artist },
+        image: { large: track.albumCover },
+        release_date_original: track.releaseDate
+      };
+    }
+
+    console.log(`🎵 Track: "${track?.title}" by ${track?.artist}`);
     console.log(`💿 Album: "${album?.title}" by ${album?.artist?.name}`);
 
-    const downloadUrl = `https://qobuz-proxy.authme.workers.dev/api/download-music?track_id=${trackId}&quality=${quality}`;
+    const downloadUrl = `${API_BASE_URL}/stream?trackId=${trackId}&quality=${quality}`;
     console.log(`🌐 API call: ${downloadUrl}`);
     
     const response = await fetch(downloadUrl);
@@ -262,7 +298,7 @@ app.post('/api/download/track', async (req, res) => {
   }
 });
 
-// Download entire album
+// Download entire album using new API
 app.post('/api/download/album', async (req, res) => {
   try {
     const { albumId, quality = 7 } = req.body;
@@ -275,7 +311,7 @@ app.post('/api/download/album', async (req, res) => {
 
     // First get album details with all tracks
     console.log(`📀 Getting album details for: ${albumId}`);
-    const albumUrl = `https://qobuz-proxy.authme.workers.dev/api/get-album?album_id=${albumId}`;
+    const albumUrl = `${API_BASE_URL}/album?albumId=${albumId}`;
     console.log(`🌐 API call: ${albumUrl}`);
     
     const albumResponse = await fetch(albumUrl);
@@ -286,14 +322,31 @@ app.post('/api/download/album', async (req, res) => {
     }
     
     const albumData = await albumResponse.json();
-    const album = albumData.album || albumData;
     
-    if (!album.tracks?.items || album.tracks.items.length === 0) {
+    if (!albumData.tracks || albumData.tracks.length === 0) {
       return res.status(400).json({ error: 'No tracks found in album' });
     }
     
-    console.log(`📊 Album: "${album.title}" by ${album.artist?.name}`);
-    console.log(`📊 Found ${album.tracks.items.length} tracks in album`);
+    console.log(`📊 Album: "${albumData.title}" by ${albumData.artist}`);
+    console.log(`📊 Found ${albumData.tracks.length} tracks in album`);
+    
+    // Transform album data to expected format
+    const album = {
+      id: albumData.id,
+      title: albumData.title,
+      artist: { name: albumData.artist },
+      image: { large: albumData.cover },
+      release_date_original: albumData.releaseDate,
+      tracks: {
+        items: albumData.tracks.map(track => ({
+          id: track.id,
+          title: track.title,
+          performer: { name: track.artist },
+          track_number: track.trackNumber,
+          duration: track.duration
+        }))
+      }
+    };
     
     const downloadId = 'album-' + Date.now();
     
@@ -315,6 +368,8 @@ app.post('/api/download/album', async (req, res) => {
     res.status(500).json({ error: 'Album download failed', details: error.message });
   }
 });
+
+// [Rest of the functions remain largely the same, but I'll update the key ones]
 
 // Album download function - downloads each track individually
 async function startAlbumDownload(downloadId, albumId, album, quality) {
@@ -354,8 +409,8 @@ async function startAlbumDownload(downloadId, albumId, album, quality) {
         albumDownloadInfo.currentTrack = track.title;
         broadcast({ type: 'download_update', data: albumDownloadInfo });
         
-        // Get download URL for this track
-        const downloadUrl = `https://qobuz-proxy.authme.workers.dev/api/download-music?track_id=${track.id}&quality=${quality}`;
+        // Get download URL for this track using new API
+        const downloadUrl = `${API_BASE_URL}/stream?trackId=${track.id}&quality=${quality}`;
         console.log(`🌐 API call: ${downloadUrl}`);
         
         const response = await fetch(downloadUrl);
@@ -445,6 +500,175 @@ async function startAlbumDownload(downloadId, albumId, album, quality) {
   }
 }
 
+// [Include all the other existing functions like downloadSingleTrackForAlbum, 
+// downloadAlbumArtwork, setUserFriendlyPermissions, etc. - they remain mostly the same]
+
+// Main download function with FFmpeg processing
+async function startFileDownloadWithProcessing(downloadId, trackId, fileUrl, quality, track, album) {
+  let tempFilePath = null;
+  
+  try {
+    console.log(`\n🚀 === STARTING DOWNLOAD ${downloadId} ===`);
+    console.log(`📥 Track ID: ${trackId}`);
+    console.log(`🎵 Track: "${track?.title || 'Unknown'}" by ${track?.artist || 'Unknown'}`);
+    console.log(`💿 Album: "${album?.title || 'Unknown'}" by ${album?.artist?.name || 'Unknown'}`);
+    
+    const downloadInfo = {
+      id: downloadId,
+      trackId,
+      quality,
+      status: 'downloading',
+      progress: 0,
+      startTime: new Date().toISOString(),
+      title: track?.title || `Track ${trackId}`,
+      artist: track?.artist || album?.artist?.name || 'Unknown Artist'
+    };
+    
+    activeDownloads.set(downloadId, downloadInfo);
+    broadcast({ type: 'download_update', data: downloadInfo });
+    
+    // Step 1: Download file
+    console.log(`📡 Downloading file...`);
+    const response = await fetch(fileUrl);
+    if (!response.ok) {
+      throw new Error(`File download failed: ${response.status}`);
+    }
+    
+    const totalSize = parseInt(response.headers.get('content-length') || '0');
+    console.log(`📊 File size: ${Math.round(totalSize / 1024 / 1024)} MB`);
+    
+    // Step 2: Prepare file paths
+    const extensions = { 5: 'mp3', 6: 'flac', 7: 'flac', 27: 'flac' };
+    const extension = extensions[quality] || 'flac';
+    
+    // Sanitize function for filenames
+    const sanitize = (str) => {
+      if (!str) return 'Unknown';
+      return str
+        .replace(/[<>:"/\\|?*]/g, '') // Remove invalid chars
+        .replace(/\s+/g, ' ')         // Single spaces
+        .trim()
+        .substring(0, 80);            // Reasonable length
+    };
+    
+    // Build metadata with fallbacks
+    const trackTitle = sanitize(track?.title || 'Unknown Track');
+    const artistName = sanitize(track?.artist || album?.artist?.name || 'Unknown Artist');
+    const albumTitle = sanitize(album?.title || track?.albumTitle || 'Unknown Album');
+    const trackNumber = String(track?.trackNumber || 1).padStart(2, '0');
+    
+    // Get year
+    let year = '';
+    if (album?.release_date_original || track?.releaseDate) {
+      try {
+        year = new Date(album?.release_date_original || track?.releaseDate).getFullYear();
+      } catch (e) {
+        console.log(`⚠️ Could not parse year from: ${album?.release_date_original || track?.releaseDate}`);
+      }
+    }
+    
+    // Create final paths
+    const albumFolderName = year ? `${artistName} - ${albumTitle} (${year})` : `${artistName} - ${albumTitle}`;
+    const fileName = `${trackNumber} - ${trackTitle}.${extension}`;
+    
+    const musicDir = process.env.DOWNLOAD_PATH || '/app/music';
+    const tempDir = process.env.TEMP_PATH || '/app/temp';
+    const albumDir = path.join(musicDir, albumFolderName);
+    
+    tempFilePath = path.join(tempDir, `${downloadId}.${extension}`);
+    const finalFilePath = path.join(albumDir, fileName);
+    
+    console.log(`📁 Album folder: ${albumFolderName}`);
+    console.log(`📄 File name: ${fileName}`);
+    console.log(`🎯 Final path: ${finalFilePath}`);
+    
+    // Step 3: Create directories
+    await fs.ensureDir(tempDir);
+    await fs.ensureDir(albumDir);
+    console.log(`✅ Created directories`);
+    
+    // Step 4: Download album artwork
+    await downloadAlbumArtwork(album || { image: { large: track?.albumCover } }, albumDir);
+    
+    // Step 5: Write to temp file
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    await fs.writeFile(tempFilePath, buffer);
+    console.log(`✅ Downloaded to temp file: ${buffer.length} bytes`);
+    
+    // Update progress
+    downloadInfo.progress = 50;
+    downloadInfo.status = 'processing';
+    downloadInfo.fileSize = buffer.length;
+    broadcast({ type: 'download_update', data: downloadInfo });
+    
+    // Step 6: Process with FFmpeg
+    console.log(`🔧 Starting FFmpeg processing...`);
+    await processWithFFmpeg(tempFilePath, finalFilePath, track, album);
+    console.log(`✅ FFmpeg processing completed`);
+    
+    // Step 7: Clean up temp file
+    if (tempFilePath && await fs.pathExists(tempFilePath)) {
+      await fs.remove(tempFilePath);
+      console.log(`🧹 Cleaned up temp file`);
+    }
+    
+    // Step 8: Complete
+    downloadInfo.status = 'completed';
+    downloadInfo.progress = 100;
+    downloadInfo.endTime = new Date().toISOString();
+    downloadInfo.filePath = finalFilePath;
+    
+    console.log(`✅ === DOWNLOAD COMPLETED ===`);
+    console.log(`📂 Final location: ${finalFilePath}`);
+    console.log(`⏱️ Duration: ${((new Date() - new Date(downloadInfo.startTime)) / 1000).toFixed(1)}s\n`);
+    
+    // Add to history
+    addToHistory(downloadInfo, track, album);
+    
+    broadcast({ type: 'download_update', data: downloadInfo });
+    
+    // Keep visible for 15 seconds
+    setTimeout(() => {
+      activeDownloads.delete(downloadId);
+      broadcast({ type: 'download_removed', data: { id: downloadId } });
+    }, 15000);
+    
+  } catch (error) {
+    console.error(`❌ === DOWNLOAD FAILED ===`);
+    console.error(`❌ Error:`, error.message);
+    console.error(`❌ Stack:`, error.stack);
+    
+    // Clean up temp file on error
+    if (tempFilePath) {
+      try {
+        if (await fs.pathExists(tempFilePath)) {
+          await fs.remove(tempFilePath);
+          console.log(`🧹 Cleaned up temp file after error`);
+        }
+      } catch (cleanupError) {
+        console.error(`❌ Failed to clean up temp file:`, cleanupError.message);
+      }
+    }
+    
+    const downloadInfo = activeDownloads.get(downloadId);
+    if (downloadInfo) {
+      downloadInfo.status = 'failed';
+      downloadInfo.error = error.message;
+      downloadInfo.endTime = new Date().toISOString();
+      
+      // Add failed download to history too
+      addToHistory(downloadInfo, track, album);
+      
+      broadcast({ type: 'download_update', data: downloadInfo });
+      
+      setTimeout(() => {
+        activeDownloads.delete(downloadId);
+      }, 15000);
+    }
+  }
+}
+
 // Download a single track as part of an album download
 async function downloadSingleTrackForAlbum(trackDownloadId, track, album, fileUrl, quality) {
   let tempFilePath = null;
@@ -475,9 +699,9 @@ async function downloadSingleTrackForAlbum(trackDownloadId, track, album, fileUr
     
     // Build metadata with fallbacks
     const trackTitle = sanitize(track?.title || 'Unknown Track');
-    const artistName = sanitize(track?.performer?.name || album?.artist?.name || 'Unknown Artist');
+    const artistName = sanitize(track?.performer?.name || track?.artist || album?.artist?.name || 'Unknown Artist');
     const albumTitle = sanitize(album?.title || 'Unknown Album');
-    const trackNumber = String(track?.track_number || 1).padStart(2, '0');
+    const trackNumber = String(track?.track_number || track?.trackNumber || 1).padStart(2, '0');
     
     // Get year
     let year = '';
@@ -526,12 +750,6 @@ async function downloadSingleTrackForAlbum(trackDownloadId, track, album, fileUr
       console.log(`🧹 Cleaned up temp file`);
     }
     
-    // Step 7: Clean up temp file
-    if (tempFilePath && await fs.pathExists(tempFilePath)) {
-      await fs.remove(tempFilePath);
-      console.log(`🧹 Cleaned up temp file`);
-    }
-    
     // Step 8: Set user-friendly permissions
     await setUserFriendlyPermissions(finalFilePath, albumDir);
     
@@ -567,7 +785,7 @@ async function downloadAlbumArtwork(album, albumDir) {
     }
     
     // Get the best quality image URL
-    const imageUrl = album?.image?.large || album?.image?.medium || album?.image?.small;
+    const imageUrl = album?.image?.large || album?.cover || album?.image?.medium || album?.image?.small;
     
     if (!imageUrl) {
       console.log(`⚠️ No album artwork available`);
@@ -672,7 +890,7 @@ function getAlbumFolderName(track, album) {
       .substring(0, 80);            // Reasonable length
   };
   
-  const artistName = sanitize(track?.performer?.name || album?.artist?.name || 'Unknown Artist');
+  const artistName = sanitize(track?.performer?.name || track?.artist || album?.artist?.name || 'Unknown Artist');
   const albumTitle = sanitize(album?.title || 'Unknown Album');
   
   let year = '';
@@ -685,172 +903,6 @@ function getAlbumFolderName(track, album) {
   }
   
   return year ? `${artistName} - ${albumTitle} (${year})` : `${artistName} - ${albumTitle}`;
-}
-
-// Main download function with FFmpeg processing
-async function startFileDownloadWithProcessing(downloadId, trackId, fileUrl, quality, track, album) {
-  let tempFilePath = null;
-  
-  try {
-    console.log(`\n🚀 === STARTING DOWNLOAD ${downloadId} ===`);
-    console.log(`📥 Track ID: ${trackId}`);
-    console.log(`🎵 Track: "${track?.title || 'Unknown'}" by ${track?.performer?.name || 'Unknown'}`);
-    console.log(`💿 Album: "${album?.title || 'Unknown'}" by ${album?.artist?.name || 'Unknown'}`);
-    
-    const downloadInfo = {
-      id: downloadId,
-      trackId,
-      quality,
-      status: 'downloading',
-      progress: 0,
-      startTime: new Date().toISOString(),
-      title: track?.title || `Track ${trackId}`,
-      artist: track?.performer?.name || album?.artist?.name || 'Unknown Artist'
-    };
-    
-    activeDownloads.set(downloadId, downloadInfo);
-    broadcast({ type: 'download_update', data: downloadInfo });
-    
-    // Step 1: Download file
-    console.log(`📡 Downloading file...`);
-    const response = await fetch(fileUrl);
-    if (!response.ok) {
-      throw new Error(`File download failed: ${response.status}`);
-    }
-    
-    const totalSize = parseInt(response.headers.get('content-length') || '0');
-    console.log(`📊 File size: ${Math.round(totalSize / 1024 / 1024)} MB`);
-    
-    // Step 2: Prepare file paths
-    const extensions = { 5: 'mp3', 6: 'flac', 7: 'flac', 27: 'flac' };
-    const extension = extensions[quality] || 'flac';
-    
-    // Sanitize function for filenames
-    const sanitize = (str) => {
-      if (!str) return 'Unknown';
-      return str
-        .replace(/[<>:"/\\|?*]/g, '') // Remove invalid chars
-        .replace(/\s+/g, ' ')         // Single spaces
-        .trim()
-        .substring(0, 80);            // Reasonable length
-    };
-    
-    // Build metadata with fallbacks
-    const trackTitle = sanitize(track?.title || 'Unknown Track');
-    const artistName = sanitize(track?.performer?.name || album?.artist?.name || 'Unknown Artist');
-    const albumTitle = sanitize(album?.title || 'Unknown Album');
-    const trackNumber = String(track?.track_number || 1).padStart(2, '0');
-    
-    // Get year
-    let year = '';
-    if (album?.release_date_original) {
-      try {
-        year = new Date(album.release_date_original).getFullYear();
-      } catch (e) {
-        console.log(`⚠️ Could not parse year from: ${album.release_date_original}`);
-      }
-    }
-    
-    // Create final paths
-    const albumFolderName = year ? `${artistName} - ${albumTitle} (${year})` : `${artistName} - ${albumTitle}`;
-    const fileName = `${trackNumber} - ${trackTitle}.${extension}`;
-    
-    const musicDir = process.env.DOWNLOAD_PATH || '/app/music';
-    const tempDir = process.env.TEMP_PATH || '/app/temp';
-    const albumDir = path.join(musicDir, albumFolderName);
-    
-    tempFilePath = path.join(tempDir, `${downloadId}.${extension}`);
-    const finalFilePath = path.join(albumDir, fileName);
-    
-    console.log(`📁 Album folder: ${albumFolderName}`);
-    console.log(`📄 File name: ${fileName}`);
-    console.log(`🎯 Final path: ${finalFilePath}`);
-    
-    // Step 3: Create directories
-    await fs.ensureDir(tempDir);
-    await fs.ensureDir(albumDir);
-    console.log(`✅ Created directories`);
-    
-    // Step 4: Download album artwork
-    await downloadAlbumArtwork(album || track?.album, albumDir);
-    
-    // Step 5: Write to temp file
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    await fs.writeFile(tempFilePath, buffer);
-    console.log(`✅ Downloaded to temp file: ${buffer.length} bytes`);
-    
-    // Update progress
-    downloadInfo.progress = 50;
-    downloadInfo.status = 'processing';
-    downloadInfo.fileSize = buffer.length;
-    broadcast({ type: 'download_update', data: downloadInfo });
-    
-    // Step 6: Process with FFmpeg
-    console.log(`🔧 Starting FFmpeg processing...`);
-    await processWithFFmpeg(tempFilePath, finalFilePath, track, album);
-    console.log(`✅ FFmpeg processing completed`);
-    
-    // Step 7: Clean up temp file
-    if (tempFilePath && await fs.pathExists(tempFilePath)) {
-      await fs.remove(tempFilePath);
-      console.log(`🧹 Cleaned up temp file`);
-    }
-    
-    // Step 7: Complete
-    downloadInfo.status = 'completed';
-    downloadInfo.progress = 100;
-    downloadInfo.endTime = new Date().toISOString();
-    downloadInfo.filePath = finalFilePath;
-    
-    console.log(`✅ === DOWNLOAD COMPLETED ===`);
-    console.log(`📂 Final location: ${finalFilePath}`);
-    console.log(`⏱️ Duration: ${((new Date() - new Date(downloadInfo.startTime)) / 1000).toFixed(1)}s\n`);
-    
-    // Add to history
-    addToHistory(downloadInfo, track, album);
-    
-    broadcast({ type: 'download_update', data: downloadInfo });
-    
-    // Keep visible for 15 seconds
-    setTimeout(() => {
-      activeDownloads.delete(downloadId);
-      broadcast({ type: 'download_removed', data: { id: downloadId } });
-    }, 15000);
-    
-  } catch (error) {
-    console.error(`❌ === DOWNLOAD FAILED ===`);
-    console.error(`❌ Error:`, error.message);
-    console.error(`❌ Stack:`, error.stack);
-    
-    // Clean up temp file on error
-    if (tempFilePath) {
-      try {
-        if (await fs.pathExists(tempFilePath)) {
-          await fs.remove(tempFilePath);
-          console.log(`🧹 Cleaned up temp file after error`);
-        }
-      } catch (cleanupError) {
-        console.error(`❌ Failed to clean up temp file:`, cleanupError.message);
-      }
-    }
-    
-    const downloadInfo = activeDownloads.get(downloadId);
-    if (downloadInfo) {
-      downloadInfo.status = 'failed';
-      downloadInfo.error = error.message;
-      downloadInfo.endTime = new Date().toISOString();
-      
-      // Add failed download to history too
-      addToHistory(downloadInfo, track, album);
-      
-      broadcast({ type: 'download_update', data: downloadInfo });
-      
-      setTimeout(() => {
-        activeDownloads.delete(downloadId);
-      }, 15000);
-    }
-  }
 }
 
 // FFmpeg processing function
@@ -869,9 +921,9 @@ async function processWithFFmpeg(inputFile, outputFile, track, album) {
       console.log(`🏷️ Title: ${track.title}`);
     }
     
-    if (track?.performer?.name) {
-      metadata.artist = track.performer.name;
-      console.log(`🏷️ Artist: ${track.performer.name}`);
+    if (track?.performer?.name || track?.artist) {
+      metadata.artist = track.performer?.name || track.artist;
+      console.log(`🏷️ Artist: ${metadata.artist}`);
     }
     
     if (album?.title) {
@@ -879,14 +931,14 @@ async function processWithFFmpeg(inputFile, outputFile, track, album) {
       console.log(`🏷️ Album: ${album.title}`);
     }
     
-    if (album?.artist?.name) {
-      metadata.albumartist = album.artist.name;
-      console.log(`🏷️ Album Artist: ${album.artist.name}`);
+    if (album?.artist?.name || album?.artist) {
+      metadata.albumartist = album.artist?.name || album.artist;
+      console.log(`🏷️ Album Artist: ${metadata.albumartist}`);
     }
     
-    if (track?.track_number) {
-      metadata.track = track.track_number.toString();
-      console.log(`🏷️ Track Number: ${track.track_number}`);
+    if (track?.track_number || track?.trackNumber) {
+      metadata.track = (track.track_number || track.trackNumber).toString();
+      console.log(`🏷️ Track Number: ${metadata.track}`);
     }
     
     // Additional metadata
@@ -900,14 +952,14 @@ async function processWithFFmpeg(inputFile, outputFile, track, album) {
       }
     }
     
-    if (album?.genre?.name) {
-      metadata.genre = album.genre.name;
-      console.log(`🏷️ Genre: ${album.genre.name}`);
+    if (album?.genre?.name || album?.genre) {
+      metadata.genre = album.genre?.name || album.genre;
+      console.log(`🏷️ Genre: ${metadata.genre}`);
     }
     
-    if (album?.label?.name) {
-      metadata.publisher = album.label.name;
-      console.log(`🏷️ Label: ${album.label.name}`);
+    if (album?.label?.name || album?.label) {
+      metadata.publisher = album.label?.name || album.label;
+      console.log(`🏷️ Label: ${metadata.publisher}`);
     }
     
     // Add metadata to FFmpeg command
@@ -993,7 +1045,7 @@ server.listen(PORT, () => {
   console.log(`🦆 QuackBus running on port ${PORT}`);
   console.log(`📁 Build path: ${buildPath}`);
   console.log(`📥 Music directory: ${process.env.DOWNLOAD_PATH || '/app/music'}`);
-  console.log(`🚀 Ready for downloads with FFmpeg processing!`);
+  console.log(`🚀 Ready for downloads with new dab.yeet.su API!`);
   
   // Ensure directories exist
   fs.ensureDirSync(process.env.DOWNLOAD_PATH || '/app/music');
