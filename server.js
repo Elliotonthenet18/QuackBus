@@ -460,56 +460,75 @@ async function startAlbumDownload(downloadId, albumId, album, quality) {
     // Download album artwork to temp folder
     await downloadAlbumArtwork(album, tempAlbumDir);
     
-    // Download each track to temp folder
+    // Download each track to temp folder with retry logic
     for (let i = 0; i < album.tracks.items.length; i++) {
       const track = album.tracks.items[i];
+      const maxRetries = 3;
+      let attempt = 0;
+      let trackCompleted = false;
       
-      try {
-        console.log(`\n📥 [${i + 1}/${album.tracks.items.length}] Downloading: "${track.title}"`);
-        
-        // Update album progress
-        albumDownloadInfo.status = `downloading track ${i + 1}/${album.tracks.items.length}`;
-        albumDownloadInfo.currentTrack = track.title;
-        broadcast({ type: 'download_update', data: albumDownloadInfo });
-        
-        // Get download URL for this track using new API
-        const downloadUrl = `${API_BASE_URL}/stream?trackId=${track.id}&quality=${quality}`;
-        console.log(`🌐 API call: ${downloadUrl}`);
-        
-        const response = await fetch(downloadUrl);
-        
-        if (!response.ok) {
-          console.error(`❌ Failed to get download URL for track ${track.id}: ${response.status}`);
-          albumDownloadInfo.failedTracks++;
-          continue; // Skip this track and continue with next
+      while (attempt < maxRetries && !trackCompleted) {
+        try {
+          attempt++;
+          const retryText = attempt > 1 ? ` (attempt ${attempt}/${maxRetries})` : '';
+          console.log(`\n📥 [${i + 1}/${album.tracks.items.length}] Downloading: "${track.title}"${retryText}`);
+          
+          // Update album progress with retry info
+          albumDownloadInfo.status = `downloading track ${i + 1}/${album.tracks.items.length}${retryText}`;
+          albumDownloadInfo.currentTrack = track.title;
+          broadcast({ type: 'download_update', data: albumDownloadInfo });
+          
+          // Get download URL for this track using new API
+          const downloadUrl = `${API_BASE_URL}/stream?trackId=${track.id}&quality=${quality}`;
+          console.log(`🌐 API call: ${downloadUrl}`);
+          
+          const response = await fetch(downloadUrl);
+          
+          if (!response.ok) {
+            throw new Error(`API returned ${response.status}: ${response.statusText}`);
+          }
+          
+          const data = await response.json();
+          
+          if (!data.url) {
+            throw new Error(`No download URL received for track ${track.id}`);
+          }
+          
+          // Download and process this track in temp folder
+          const trackDownloadId = `${downloadId}_track_${track.id}`;
+          await downloadSingleTrackForAlbumToTemp(trackDownloadId, track, album, data.url, quality, tempAlbumDir);
+          
+          // Track completed successfully
+          trackCompleted = true;
+          albumDownloadInfo.completedTracks++;
+          albumDownloadInfo.progress = Math.round((albumDownloadInfo.completedTracks / album.tracks.items.length) * 100);
+          broadcast({ type: 'download_update', data: albumDownloadInfo });
+          
+          console.log(`✅ [${i + 1}/${album.tracks.items.length}] Completed: "${track.title}"`);
+          
+          // Small delay between tracks to be nice to the server
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+        } catch (trackError) {
+          console.error(`❌ Failed to download track "${track.title}" (attempt ${attempt}/${maxRetries}):`, trackError.message);
+          
+          if (attempt < maxRetries) {
+            // Exponential backoff: wait longer between retries
+            const waitTime = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
+            console.log(`⏳ Retrying in ${waitTime / 1000} seconds...`);
+            
+            // Update status to show retry delay
+            albumDownloadInfo.status = `retry in ${waitTime / 1000}s (track ${i + 1}/${album.tracks.items.length})`;
+            broadcast({ type: 'download_update', data: albumDownloadInfo });
+            
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+          } else {
+            // All retries failed
+            console.error(`❌ Track "${track.title}" failed after ${maxRetries} attempts, skipping`);
+            albumDownloadInfo.failedTracks++;
+            trackCompleted = true; // Mark as completed to move to next track
+          }
         }
-        
-        const data = await response.json();
-        
-        if (!data.url) {
-          console.error(`❌ No download URL for track ${track.id}`);
-          albumDownloadInfo.failedTracks++;
-          continue;
-        }
-        
-        // Download and process this track in temp folder
-        const trackDownloadId = `${downloadId}_track_${track.id}`;
-        await downloadSingleTrackForAlbumToTemp(trackDownloadId, track, album, data.url, quality, tempAlbumDir);
-        
-        // Update album progress
-        albumDownloadInfo.completedTracks++;
-        albumDownloadInfo.progress = Math.round((albumDownloadInfo.completedTracks / album.tracks.items.length) * 100);
-        broadcast({ type: 'download_update', data: albumDownloadInfo });
-        
-        console.log(`✅ [${i + 1}/${album.tracks.items.length}] Completed: "${track.title}"`);
-        
-        // Small delay between tracks to be nice to the server
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-      } catch (trackError) {
-        console.error(`❌ Failed to download track "${track.title}":`, trackError.message);
-        albumDownloadInfo.failedTracks++;
-        continue;
       }
     }
     
@@ -609,87 +628,104 @@ async function startAlbumDownload(downloadId, albumId, album, quality) {
   }
 }
 
-// Download a single track as part of an album download to temp folder
+// Download a single track as part of an album download to temp folder with retry logic
 async function downloadSingleTrackForAlbumToTemp(trackDownloadId, track, album, fileUrl, quality, tempAlbumDir) {
   let tempFilePath = null;
+  const maxRetries = 3;
   
-  try {
-    // Step 1: Download file
-    const response = await fetch(fileUrl);
-    if (!response.ok) {
-      throw new Error(`File download failed: ${response.status}`);
-    }
-    
-    const totalSize = parseInt(response.headers.get('content-length') || '0');
-    console.log(`📊 File size: ${Math.round(totalSize / 1024 / 1024)} MB`);
-    
-    // Step 2: Prepare file paths
-    const extensions = { 5: 'mp3', 6: 'flac', 7: 'flac', 27: 'flac' };
-    const extension = extensions[quality] || 'flac';
-    
-    // Sanitize function for filenames
-    const sanitize = (str) => {
-      if (!str) return 'Unknown';
-      return str
-        .replace(/[<>:"/\\|?*]/g, '') // Remove invalid chars
-        .replace(/\s+/g, ' ')         // Single spaces
-        .trim()
-        .substring(0, 80);            // Reasonable length
-    };
-    
-    // Build metadata with fallbacks
-    const trackTitle = sanitize(track?.title || 'Unknown Track');
-    const trackNumber = String(track?.track_number || track?.trackNumber || 1).padStart(2, '0');
-    const fileName = `${trackNumber} - ${trackTitle}.${extension}`;
-    
-    // Use temp album directory for both temp file and final file
-    tempFilePath = path.join(tempAlbumDir, `temp_${trackDownloadId}.${extension}`);
-    const finalFilePath = path.join(tempAlbumDir, fileName);
-    
-    console.log(`📄 File: ${fileName}`);
-    
-    // Step 3: Write to temp file in album directory
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    await fs.writeFile(tempFilePath, buffer);
-    console.log(`✅ Downloaded to temp: ${buffer.length} bytes`);
-    
-    // Step 4: Process with FFmpeg
-    console.log(`🔧 Processing with FFmpeg...`);
-    await processWithFFmpeg(tempFilePath, finalFilePath, track, album);
-    console.log(`✅ FFmpeg completed`);
-    
-    // Step 5: Clean up temp file
-    if (tempFilePath && await fs.pathExists(tempFilePath)) {
-      await fs.remove(tempFilePath);
-      console.log(`🧹 Cleaned up temp file`);
-    }
-    
-    // Step 6: Set permissions for the processed file (in temp album directory)
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      await fs.chmod(finalFilePath, 0o666); // rw-rw-rw-
-      console.log(`📋 Set permissions for: ${fileName}`);
-    } catch (permError) {
-      console.log(`⚠️ Could not set permissions for ${fileName}:`, permError.message);
-    }
-    
-    console.log(`✅ Track completed in temp folder: ${finalFilePath}`);
-    
-  } catch (error) {
-    console.error(`❌ Track download failed: ${error.message}`);
-    
-    // Clean up temp file on error
-    if (tempFilePath) {
-      try {
-        if (await fs.pathExists(tempFilePath)) {
-          await fs.remove(tempFilePath);
-        }
-      } catch (cleanupError) {
-        console.error(`❌ Failed to clean up temp file:`, cleanupError.message);
+      // Step 1: Download file
+      console.log(`📡 Downloading file${attempt > 1 ? ` (attempt ${attempt}/${maxRetries})` : ''}...`);
+      const response = await fetch(fileUrl);
+      if (!response.ok) {
+        throw new Error(`File download failed: ${response.status} ${response.statusText}`);
       }
+      
+      const totalSize = parseInt(response.headers.get('content-length') || '0');
+      console.log(`📊 File size: ${Math.round(totalSize / 1024 / 1024)} MB`);
+      
+      // Step 2: Prepare file paths
+      const extensions = { 5: 'mp3', 6: 'flac', 7: 'flac', 27: 'flac' };
+      const extension = extensions[quality] || 'flac';
+      
+      // Sanitize function for filenames
+      const sanitize = (str) => {
+        if (!str) return 'Unknown';
+        return str
+          .replace(/[<>:"/\\|?*]/g, '') // Remove invalid chars
+          .replace(/\s+/g, ' ')         // Single spaces
+          .trim()
+          .substring(0, 80);            // Reasonable length
+      };
+      
+      // Build metadata with fallbacks
+      const trackTitle = sanitize(track?.title || 'Unknown Track');
+      const trackNumber = String(track?.track_number || track?.trackNumber || 1).padStart(2, '0');
+      const fileName = `${trackNumber} - ${trackTitle}.${extension}`;
+      
+      // Use temp album directory for both temp file and final file
+      tempFilePath = path.join(tempAlbumDir, `temp_${trackDownloadId}.${extension}`);
+      const finalFilePath = path.join(tempAlbumDir, fileName);
+      
+      console.log(`📄 File: ${fileName}`);
+      
+      // Step 3: Write to temp file in album directory
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      await fs.writeFile(tempFilePath, buffer);
+      console.log(`✅ Downloaded to temp: ${buffer.length} bytes`);
+      
+      // Step 4: Process with FFmpeg
+      console.log(`🔧 Processing with FFmpeg...`);
+      await processWithFFmpeg(tempFilePath, finalFilePath, track, album);
+      console.log(`✅ FFmpeg completed`);
+      
+      // Step 5: Clean up temp file
+      if (tempFilePath && await fs.pathExists(tempFilePath)) {
+        await fs.remove(tempFilePath);
+        console.log(`🧹 Cleaned up temp file`);
+      }
+      
+      // Step 6: Set permissions for the processed file (in temp album directory)
+      try {
+        await fs.chmod(finalFilePath, 0o666); // rw-rw-rw-
+        console.log(`📋 Set permissions for: ${fileName}`);
+      } catch (permError) {
+        console.log(`⚠️ Could not set permissions for ${fileName}:`, permError.message);
+      }
+      
+      console.log(`✅ Track completed in temp folder: ${finalFilePath}`);
+      
+      // Success - break out of retry loop
+      return;
+      
+    } catch (error) {
+      console.error(`❌ Track download failed (attempt ${attempt}/${maxRetries}): ${error.message}`);
+      
+      // Clean up temp file on error
+      if (tempFilePath) {
+        try {
+          if (await fs.pathExists(tempFilePath)) {
+            await fs.remove(tempFilePath);
+            console.log(`🧹 Cleaned up temp file after error`);
+          }
+        } catch (cleanupError) {
+          console.error(`❌ Failed to clean up temp file:`, cleanupError.message);
+        }
+        tempFilePath = null; // Reset for next attempt
+      }
+      
+      // If this was the last attempt, re-throw the error
+      if (attempt === maxRetries) {
+        throw new Error(`Track download failed after ${maxRetries} attempts: ${error.message}`);
+      }
+      
+      // Wait before retrying (exponential backoff)
+      const waitTime = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
+      console.log(`⏳ Retrying file download in ${waitTime / 1000} seconds...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
     }
-    
-    throw error; // Re-throw so album download can handle it
   }
 }
 
