@@ -13,6 +13,7 @@ QuackBus is a free and open-source Docker application for downloading high-quali
 - **Metadata Embedding**: Automatically embeds track metadata and album artwork using FFmpeg
 - **Download History**: Track completed downloads and manage your library
 - **Quality Control**: Choose your preferred audio quality per download
+- **Audio Quality Display**: See bitrate and Hi-Res status for albums and tracks
 
 ## 🚀 Quick Start
 
@@ -33,7 +34,7 @@ services:
       - "7277:7277"
     volumes:
       - ./downloads:/app/downloads
-      - ./config:/app/config
+      - ./data:/app/data  # Persist download history and app data
       - /path/to/your/music/folder:/app/music  # Change this to your actual music directory
     environment:
       # Download Configuration
@@ -48,7 +49,7 @@ services:
       
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:7277/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -78,7 +79,7 @@ http://localhost:7277
 quackbus/
 ├── docker-compose.yml
 ├── downloads/           # Temporary download staging
-├── config/             # Application settings
+├── data/               # Application data and download history
 └── logs/               # Application logs (if mapped)
 ```
 
@@ -103,13 +104,19 @@ music/
 - **Hi-Res 96kHz**: 24-bit/96kHz FLAC
 - **Hi-Res 192kHz**: 24-bit/192kHz FLAC (Premium)
 
+Quality information is displayed in search results and album details, including:
+- Bitrate display (e.g., "24bit/44.1kHz")
+- Hi-Res badge for high-resolution audio
+- Audio quality indicators in search results
+
 ## 🎯 How to Use
 
 1. **Search for Music**: Use the search bar to find artists, albums, or tracks
 2. **Select Quality**: Choose your preferred audio quality (MP3 320k, CD Quality, Hi-Res)
 3. **Download**: Click download on individual tracks or entire albums
 4. **Monitor Progress**: Watch real-time download progress in the downloads section
-5. **Enjoy**: Your music is automatically organized with embedded metadata and artwork
+5. **View History**: Check your download history in the History tab
+6. **Enjoy**: Your music is automatically organized with embedded metadata and artwork
 
 ## ⚙️ Configuration
 
@@ -186,6 +193,13 @@ docker-compose logs -f quackbus
 ### Restart the application:
 ```bash
 docker-compose restart
+```
+
+### Download history not persisting:
+Make sure the `./data` volume is properly mapped in your docker-compose.yml:
+```yaml
+volumes:
+  - ./data:/app/data  # This persists download history
 ```
 
 ## 🔒 Privacy & Security
