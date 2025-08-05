@@ -165,7 +165,7 @@ const SearchPage = ({ onDownload, showToast }) => {
     <div>
       <div className="page-header">
         <h1 className="page-title">Search Music</h1>
-        <p className="page-subtitle">Search for albums and tracks on Qobuz</p>
+        <p className="page-subtitle">Search for albums and tracks from our music library</p>
       </div>
 
       <div className="search-container">
