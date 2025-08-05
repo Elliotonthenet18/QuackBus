@@ -168,6 +168,23 @@
   color: #ffffff;
 }
 
+/* Fix for dropdown options visibility */
+.quality-select option {
+  background: #1a1a1a;
+  color: #ffffff;
+  padding: 0.5rem;
+}
+
+.quality-select option:hover {
+  background: #0ea5e9;
+  color: #ffffff;
+}
+
+.quality-select option:checked {
+  background: #0ea5e9;
+  color: #ffffff;
+}
+
 /* Cards */
 .card {
   background: rgba(255, 255, 255, 0.05);
