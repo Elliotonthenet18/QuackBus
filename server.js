@@ -499,18 +499,21 @@ async function downloadSingleTrackForAlbum(trackDownloadId, track, album, fileUr
     await fs.ensureDir(tempDir);
     await fs.ensureDir(albumDir);
     
-    // Step 4: Write to temp file
+    // Step 4: Download album artwork (only once per album)
+    await downloadAlbumArtwork(album, albumDir);
+    
+    // Step 5: Write to temp file
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     await fs.writeFile(tempFilePath, buffer);
     console.log(`✅ Downloaded to temp: ${buffer.length} bytes`);
     
-    // Step 5: Process with FFmpeg
+    // Step 6: Process with FFmpeg
     console.log(`🔧 Processing with FFmpeg...`);
     await processWithFFmpeg(tempFilePath, finalFilePath, track, album);
     console.log(`✅ FFmpeg completed`);
     
-    // Step 6: Clean up temp file
+    // Step 7: Clean up temp file
     if (tempFilePath && await fs.pathExists(tempFilePath)) {
       await fs.remove(tempFilePath);
       console.log(`🧹 Cleaned up temp file`);
@@ -533,6 +536,49 @@ async function downloadSingleTrackForAlbum(trackDownloadId, track, album, fileUr
     }
     
     throw error; // Re-throw so album download can handle it
+  }
+}
+
+// Function to download album artwork
+async function downloadAlbumArtwork(album, albumDir) {
+  try {
+    const coverPath = path.join(albumDir, 'Cover.jpg');
+    
+    // Check if cover already exists (for album downloads)
+    if (await fs.pathExists(coverPath)) {
+      console.log(`🖼️ Cover already exists: Cover.jpg`);
+      return coverPath;
+    }
+    
+    // Get the best quality image URL
+    const imageUrl = album?.image?.large || album?.image?.medium || album?.image?.small;
+    
+    if (!imageUrl) {
+      console.log(`⚠️ No album artwork available`);
+      return null;
+    }
+    
+    console.log(`🖼️ Downloading album artwork...`);
+    console.log(`🌐 Image URL: ${imageUrl.substring(0, 50)}...`);
+    
+    const response = await fetch(imageUrl);
+    
+    if (!response.ok) {
+      console.log(`⚠️ Failed to download artwork: ${response.status}`);
+      return null;
+    }
+    
+    const imageBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(imageBuffer);
+    
+    await fs.writeFile(coverPath, buffer);
+    console.log(`✅ Album artwork saved: Cover.jpg (${Math.round(buffer.length / 1024)} KB)`);
+    
+    return coverPath;
+    
+  } catch (error) {
+    console.error(`❌ Failed to download album artwork:`, error.message);
+    return null;
   }
 }
 
@@ -620,7 +666,10 @@ async function startFileDownloadWithProcessing(downloadId, trackId, fileUrl, qua
     await fs.ensureDir(albumDir);
     console.log(`✅ Created directories`);
     
-    // Step 4: Write to temp file
+    // Step 4: Download album artwork
+    await downloadAlbumArtwork(album || track?.album, albumDir);
+    
+    // Step 5: Write to temp file
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     await fs.writeFile(tempFilePath, buffer);
@@ -632,12 +681,12 @@ async function startFileDownloadWithProcessing(downloadId, trackId, fileUrl, qua
     downloadInfo.fileSize = buffer.length;
     broadcast({ type: 'download_update', data: downloadInfo });
     
-    // Step 5: Process with FFmpeg
+    // Step 6: Process with FFmpeg
     console.log(`🔧 Starting FFmpeg processing...`);
     await processWithFFmpeg(tempFilePath, finalFilePath, track, album);
     console.log(`✅ FFmpeg processing completed`);
     
-    // Step 6: Clean up temp file
+    // Step 7: Clean up temp file
     if (tempFilePath && await fs.pathExists(tempFilePath)) {
       await fs.remove(tempFilePath);
       console.log(`🧹 Cleaned up temp file`);
