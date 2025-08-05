@@ -5,7 +5,7 @@ import { Search, Download, Music, Clock, Star } from 'lucide-react';
 
 const SearchPage = ({ onDownload, showToast }) => {
   const [query, setQuery] = useState('');
-  const [searchType, setSearchType] = useState('albums');
+  const [searchType, setSearchType] = useState('album');
   const [quality, setQuality] = useState(7);
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -51,11 +51,23 @@ const SearchPage = ({ onDownload, showToast }) => {
   const handleTrackDownload = async (track) => {
     setDownloadingTracks(prev => new Set([...prev, track.id]));
     try {
-      // Pass track data along with the download request
+      // Transform track data to match the new API format
+      const trackData = {
+        id: track.id,
+        title: track.title,
+        artist: track.artist,
+        albumTitle: track.albumTitle,
+        albumCover: track.albumCover,
+        albumId: track.albumId,
+        releaseDate: track.releaseDate,
+        duration: track.duration,
+        trackNumber: track.trackNumber || 1
+      };
+
       const response = await axios.post('/api/download/track', {
         trackId: track.id,
         quality: quality,
-        trackData: track // Include the full track data
+        trackData: trackData
       });
       showToast('Track download started!', 'success');
     } catch (error) {
@@ -83,20 +95,23 @@ const SearchPage = ({ onDownload, showToast }) => {
     return results.albums.items.map((album) => (
       <div key={album.id} className="card album-card">
         <img 
-          src={album.image?.large || album.image?.medium || '/placeholder-album.png'} 
+          src={album.cover || album.images?.large || '/placeholder-album.png'} 
           alt={album.title}
           className="album-artwork"
         />
         <div className="album-info">
           <h3 className="album-title">{album.title}</h3>
-          <p className="album-artist">{album.artist?.name}</p>
+          <p className="album-artist">{album.artist}</p>
           <div className="album-meta">
-            <span>{album.tracks_count} tracks</span>
-            {album.release_date_original && (
-              <span> • {new Date(album.release_date_original).getFullYear()}</span>
+            <span>{album.trackCount} tracks</span>
+            {album.releaseDate && (
+              <span> • {new Date(album.releaseDate).getFullYear()}</span>
             )}
-            {album.genre?.name && (
-              <span> • {album.genre.name}</span>
+            {album.genre && (
+              <span> • {album.genre}</span>
+            )}
+            {album.audioQuality?.isHiRes && (
+              <span> • Hi-Res</span>
             )}
           </div>
         </div>
@@ -125,17 +140,23 @@ const SearchPage = ({ onDownload, showToast }) => {
     return results.tracks.items.map((track) => (
       <div key={track.id} className="card album-card">
         <img 
-          src={track.album?.image?.large || track.album?.image?.medium || '/placeholder-album.png'} 
+          src={track.albumCover || track.images?.large || '/placeholder-album.png'} 
           alt={track.title}
           className="album-artwork"
         />
         <div className="album-info">
           <h3 className="album-title">{track.title}</h3>
-          <p className="album-artist">{track.performer?.name}</p>
+          <p className="album-artist">{track.artist}</p>
           <div className="album-meta">
-            <span>{track.album?.title}</span>
+            <span>{track.albumTitle}</span>
             {track.duration && (
               <span> • {formatDuration(track.duration)}</span>
+            )}
+            {track.audioQuality?.isHiRes && (
+              <span> • Hi-Res</span>
+            )}
+            {track.releaseDate && (
+              <span> • {new Date(track.releaseDate).getFullYear()}</span>
             )}
           </div>
         </div>
@@ -182,8 +203,8 @@ const SearchPage = ({ onDownload, showToast }) => {
             onChange={(e) => setSearchType(e.target.value)}
             className="quality-select"
           >
-            <option value="albums">Albums</option>
-            <option value="tracks">Tracks</option>
+            <option value="album">Albums</option>
+            <option value="track">Tracks</option>
           </select>
           <button 
             type="submit" 
@@ -229,7 +250,7 @@ const SearchPage = ({ onDownload, showToast }) => {
 
       {results && !loading && (
         <div>
-          {searchType === 'albums' && results.albums?.items?.length > 0 && (
+          {searchType === 'album' && results.albums?.items?.length > 0 && (
             <div>
               <h2 style={{ marginBottom: '1rem', color: '#ffffff' }}>
                 Albums ({results.albums.items.length})
@@ -238,7 +259,7 @@ const SearchPage = ({ onDownload, showToast }) => {
             </div>
           )}
 
-          {searchType === 'tracks' && results.tracks?.items?.length > 0 && (
+          {searchType === 'track' && results.tracks?.items?.length > 0 && (
             <div>
               <h2 style={{ marginBottom: '1rem', color: '#ffffff' }}>
                 Tracks ({results.tracks.items.length})
@@ -247,8 +268,8 @@ const SearchPage = ({ onDownload, showToast }) => {
             </div>
           )}
 
-          {((searchType === 'albums' && (!results.albums?.items || results.albums.items.length === 0)) ||
-            (searchType === 'tracks' && (!results.tracks?.items || results.tracks.items.length === 0))) && (
+          {((searchType === 'album' && (!results.albums?.items || results.albums.items.length === 0)) ||
+            (searchType === 'track' && (!results.tracks?.items || results.tracks.items.length === 0))) && (
             <div className="empty-state">
               <Music size={48} style={{ color: '#555', marginBottom: '1rem' }} />
               <h3>No results found</h3>
