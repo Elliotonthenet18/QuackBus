@@ -92,7 +92,7 @@ music/
 ├── Artist Name - Album Name (Year)/
 │   ├── 01 - Track Name.flac
 │   ├── 02 - Track Name.flac
-│   ├── cover.jpg
+│   ├── Cover.jpg
 │   └── ...
 ```
 
