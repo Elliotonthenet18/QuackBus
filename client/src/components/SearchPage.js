@@ -111,7 +111,20 @@ const SearchPage = ({ onDownload, showToast }) => {
               <span> • {album.genre}</span>
             )}
             {album.audioQuality?.isHiRes && (
-              <span> • Hi-Res</span>
+              <span style={{ 
+                background: 'linear-gradient(45deg, #0ea5e9, #10b981)', 
+                color: 'white', 
+                padding: '2px 6px', 
+                borderRadius: '4px', 
+                fontSize: '0.7rem',
+                fontWeight: 'bold',
+                marginLeft: '0.5rem'
+              }}>
+                Hi-Res
+              </span>
+            )}
+            {album.audioQuality && (
+              <span> • {album.audioQuality.maximumBitDepth}bit/{album.audioQuality.maximumSamplingRate}kHz</span>
             )}
           </div>
         </div>
@@ -153,7 +166,20 @@ const SearchPage = ({ onDownload, showToast }) => {
               <span> • {formatDuration(track.duration)}</span>
             )}
             {track.audioQuality?.isHiRes && (
-              <span> • Hi-Res</span>
+              <span style={{ 
+                background: 'linear-gradient(45deg, #0ea5e9, #10b981)', 
+                color: 'white', 
+                padding: '2px 6px', 
+                borderRadius: '4px', 
+                fontSize: '0.7rem',
+                fontWeight: 'bold',
+                marginLeft: '0.5rem'
+              }}>
+                Hi-Res
+              </span>
+            )}
+            {track.audioQuality && (
+              <span> • {track.audioQuality.maximumBitDepth}bit/{track.audioQuality.maximumSamplingRate}kHz</span>
             )}
             {track.releaseDate && (
               <span> • {new Date(track.releaseDate).getFullYear()}</span>
