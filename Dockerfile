@@ -45,8 +45,8 @@ RUN addgroup -g 1001 -S quackbus && \
 RUN chown -R quackbus:quackbus /app && \
     chmod -R 755 /app
 
-# Important: Set specific permissions for temp and music directories
-RUN chmod 777 /app/temp /app/music /app/downloads
+# Important: Set specific permissions for temp, music, config, and downloads directories
+RUN chmod 777 /app/temp /app/music /app/downloads /app/config /app/logs
 
 # Switch to non-root user
 USER quackbus
