@@ -18,13 +18,16 @@ const API_BASE_URL = 'https://dab.yeet.su/api';
 // Active downloads tracking
 const activeDownloads = new Map();
 
-// Download history storage
+// Download history storage - use internal app directory instead of config volume
 let downloadHistory = [];
-const historyFilePath = path.join(process.env.CONFIG_PATH || '/app/config', 'download_history.json');
+const historyFilePath = path.join(__dirname, 'data', 'download_history.json');
 
 // Load download history on startup
 async function loadDownloadHistory() {
   try {
+    // Ensure the data directory exists (similar to temp directory)
+    await fs.ensureDir(path.dirname(historyFilePath));
+    
     if (await fs.pathExists(historyFilePath)) {
       const data = await fs.readFile(historyFilePath, 'utf8');
       downloadHistory = JSON.parse(data);
@@ -39,8 +42,10 @@ async function loadDownloadHistory() {
 // Save download history
 async function saveDownloadHistory() {
   try {
+    // Ensure the data directory exists
     await fs.ensureDir(path.dirname(historyFilePath));
     await fs.writeFile(historyFilePath, JSON.stringify(downloadHistory, null, 2));
+    console.log(`💾 Saved download history to ${historyFilePath}`);
   } catch (error) {
     console.error('❌ Could not save download history:', error.message);
   }
@@ -849,20 +854,20 @@ async function setUserFriendlyPermissions(filePath, albumDir) {
     // Set file permissions to 666 (rw-rw-rw-) - readable/writable by everyone
     if (await fs.pathExists(filePath)) {
       await fs.chmod(filePath, 0o666);
-      console.log(`📋 Set file permissions: ${path.basename(filePath)}`);
+      console.log(`📋 Set file permissions (666): ${path.basename(filePath)}`);
     }
     
     // Set folder permissions to 777 (rwxrwxrwx) - full access for everyone
     if (await fs.pathExists(albumDir)) {
       await fs.chmod(albumDir, 0o777);
-      console.log(`📁 Set folder permissions: ${path.basename(albumDir)}`);
+      console.log(`📁 Set folder permissions (777): ${path.basename(albumDir)}`);
     }
     
     // Also set permissions on Cover.jpg if it exists
     const coverPath = path.join(albumDir, 'Cover.jpg');
     if (await fs.pathExists(coverPath)) {
       await fs.chmod(coverPath, 0o666);
-      console.log(`🖼️ Set cover permissions: Cover.jpg`);
+      console.log(`🖼️ Set cover permissions (666): Cover.jpg`);
     }
     
   } catch (error) {
@@ -876,26 +881,29 @@ async function setFinalAlbumPermissions(albumDir) {
   try {
     if (!await fs.pathExists(albumDir)) return;
     
-    console.log(`📁 Setting final permissions for album folder...`);
+    console.log(`📁 Setting final permissions for album folder and all contents...`);
     
-    // Set folder permissions
+    // Set folder permissions to 777 (full access)
     await fs.chmod(albumDir, 0o777);
     
     // Get all files in the folder
     const files = await fs.readdir(albumDir);
     
-    // Set permissions on all files
+    // Set permissions on all files to 666 (read/write for everyone)
     for (const file of files) {
       const filePath = path.join(albumDir, file);
       const stats = await fs.stat(filePath);
       
       if (stats.isFile()) {
-        await fs.chmod(filePath, 0o666); // Files: rw-rw-rw-
-        console.log(`📋 Set permissions: ${file}`);
+        await fs.chmod(filePath, 0o666); // Files: rw-rw-rw- (any user can edit/delete)
+        console.log(`📋 Set file permissions (666): ${file}`);
+      } else if (stats.isDirectory()) {
+        await fs.chmod(filePath, 0o777); // Subdirectories: rwxrwxrwx
+        console.log(`📁 Set directory permissions (777): ${file}`);
       }
     }
     
-    console.log(`✅ Final permissions set for ${files.length} files`);
+    console.log(`✅ Final permissions set for ${files.length} items - any user can now access/modify/delete`);
     
   } catch (error) {
     console.log(`⚠️ Could not set final album permissions:`, error.message);
@@ -1068,12 +1076,25 @@ server.listen(PORT, () => {
   console.log(`🦆 QuackBus running on port ${PORT}`);
   console.log(`📁 Build path: ${buildPath}`);
   console.log(`📥 Music directory: ${process.env.DOWNLOAD_PATH || '/app/music'}`);
+  console.log(`📊 Data directory: ${path.join(__dirname, 'data')}`);
   console.log(`🚀 Ready for downloads with new dab.yeet.su API!`);
   
   // Ensure directories exist
-  fs.ensureDirSync(process.env.DOWNLOAD_PATH || '/app/music');
-  fs.ensureDirSync(process.env.TEMP_PATH || '/app/temp');
-  fs.ensureDirSync(process.env.CONFIG_PATH || '/app/config');
+  const musicDir = process.env.DOWNLOAD_PATH || '/app/music';
+  const tempDir = process.env.TEMP_PATH || '/app/temp';
+  const dataDir = path.join(__dirname, 'data');
+  
+  fs.ensureDirSync(musicDir);
+  fs.ensureDirSync(tempDir);
+  fs.ensureDirSync(dataDir);
+  
+  // Set permissive permissions on music directory so any user can access it
+  try {
+    fs.chmodSync(musicDir, 0o777); // Full access for everyone
+    console.log(`📁 Set music directory permissions (777) - any user can access/modify`);
+  } catch (error) {
+    console.log(`⚠️ Could not set music directory permissions:`, error.message);
+  }
   
   // Load download history
   loadDownloadHistory();
