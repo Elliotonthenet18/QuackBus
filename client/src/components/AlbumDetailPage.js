@@ -48,13 +48,13 @@ const AlbumDetailPage = ({ onDownload, showToast }) => {
       const trackData = {
         id: track.id,
         title: track.title,
-        artist: track.performer?.name || album.artist?.name,
+        artist: track.performer?.name || track.artist || album.artist?.name,
         albumTitle: album.title,
         albumCover: album.image?.large,
         albumId: album.id,
         releaseDate: album.release_date_original,
         duration: track.duration,
-        trackNumber: track.track_number || track.trackNumber
+        trackNumber: track.track_number || track.trackNumber || 1
       };
 
       const response = await axios.post('/api/download/track', {
@@ -273,7 +273,7 @@ const AlbumDetailPage = ({ onDownload, showToast }) => {
                       {track.performer.name}
                     </div>
                   )}
-                  {track.artist && track.artist !== album.artist?.name && (
+                  {track.artist && track.artist !== album.artist?.name && track.artist !== track.performer?.name && (
                     <div style={{ color: '#0ea5e9', fontSize: '0.9rem' }}>
                       {track.artist}
                     </div>
