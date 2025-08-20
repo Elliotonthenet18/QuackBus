@@ -34,9 +34,9 @@ RUN npm run build
 # Go back to app root
 WORKDIR /app
 
-# Create necessary directories with proper permissions from the start
-RUN mkdir -p /app/downloads /app/temp /app/config /app/logs /app/data && \
-    chmod 777 /app/downloads /app/temp /app/config /app/logs /app/data
+# Create only necessary directories - music is mounted via volume, downloads removed
+RUN mkdir -p /app/temp /app/config /app/logs /app/data && \
+    chmod 777 /app/temp /app/config /app/logs /app/data
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S quackbus && \
@@ -45,11 +45,12 @@ RUN addgroup -g 1001 -S quackbus && \
 # Set ownership for the entire app directory to quackbus user
 RUN chown -R quackbus:quackbus /app
 
-RUN chmod 777 /app && \
-    chmod 777 /app/downloads /app/temp /app/config /app/logs /app/data
+# Set proper permissions - app code can be read-only, but data directories need write access
+RUN chmod -R 755 /app && \
+    chmod 777 /app/temp /app/config /app/logs /app/data
 
 # Ensure the quackbus user can write to all necessary directories
-RUN chown -R quackbus:quackbus /app/downloads /app/temp /app/config /app/logs /app/data
+RUN chown -R quackbus:quackbus /app/temp /app/config /app/logs /app/data
 
 # Switch to non-root user
 USER quackbus
