@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import './App.css';
 
@@ -14,6 +14,17 @@ import Toast from './components/Toast';
 
 // WebSocket connection for real-time updates
 let ws = null;
+
+// Component to handle route changes
+function RouteChangeHandler({ onRouteChange }) {
+  const location = useLocation();
+  
+  useEffect(() => {
+    onRouteChange(location.pathname);
+  }, [location.pathname, onRouteChange]);
+  
+  return null;
+}
 
 function App() {
   const [downloads, setDownloads] = useState({ active: [], queue: 0 });
@@ -31,6 +42,8 @@ function App() {
       ws.onopen = () => {
         console.log('WebSocket connected');
         setIsConnected(true);
+        // Fetch downloads immediately when WebSocket connects
+        fetchDownloadStatus();
       };
       
       ws.onmessage = (event) => {
@@ -59,11 +72,15 @@ function App() {
     // Fetch initial download status
     fetchDownloadStatus();
 
+    // Set up periodic refresh of download status (every 30 seconds as backup)
+    const interval = setInterval(fetchDownloadStatus, 30000);
+
     // Cleanup on unmount
     return () => {
       if (ws) {
         ws.close();
       }
+      clearInterval(interval);
     };
   }, []);
 
@@ -75,37 +92,54 @@ function App() {
         
         if (activeIndex !== -1) {
           updated.active[activeIndex] = { ...updated.active[activeIndex], ...data.data };
+        } else {
+          // Add new download if not found
+          updated.active.push(data.data);
+        }
+        
+        // Remove completed or failed downloads after a delay
+        if (data.data.status === 'completed' || data.data.status === 'failed') {
+          setTimeout(() => {
+            setDownloads(current => ({
+              ...current,
+              active: current.active.filter(d => d.id !== data.data.id)
+            }));
+          }, 5000);
           
-          // Remove completed or failed downloads after a delay
-          if (data.data.status === 'completed' || data.data.status === 'failed') {
-            setTimeout(() => {
-              setDownloads(current => ({
-                ...current,
-                active: current.active.filter(d => d.id !== data.data.id)
-              }));
-            }, 5000);
-            
-            // Show completion toast
-            showToast(
-              data.data.status === 'completed' 
-                ? 'Download completed successfully!' 
-                : `Download failed: ${data.data.error}`,
-              data.data.status === 'completed' ? 'success' : 'error'
-            );
-          }
+          // Show completion toast
+          showToast(
+            data.data.status === 'completed' 
+              ? 'Download completed successfully!' 
+              : `Download failed: ${data.data.error}`,
+            data.data.status === 'completed' ? 'success' : 'error'
+          );
         }
         
         return updated;
       });
+    } else if (data.type === 'download_removed') {
+      setDownloads(prev => ({
+        ...prev,
+        active: prev.active.filter(d => d.id !== data.data.id)
+      }));
     }
   };
 
   const fetchDownloadStatus = async () => {
     try {
+      console.log('Fetching download status...');
       const response = await axios.get('/api/downloads');
       setDownloads(response.data);
     } catch (error) {
       console.error('Failed to fetch download status:', error);
+    }
+  };
+
+  const handleRouteChange = (pathname) => {
+    // Refresh downloads when navigating to downloads page
+    if (pathname === '/downloads') {
+      console.log('Navigated to downloads page, refreshing status...');
+      fetchDownloadStatus();
     }
   };
 
@@ -125,6 +159,9 @@ function App() {
       
       const response = await axios.post(endpoint, payload);
       showToast(`${type === 'album' ? 'Album' : 'Track'} download started!`, 'success');
+      
+      // Immediately refresh download status to show the new download
+      setTimeout(fetchDownloadStatus, 500);
       
       return response.data.downloadId;
     } catch (error) {
@@ -148,6 +185,8 @@ function App() {
   return (
     <Router>
       <div className="App">
+        <RouteChangeHandler onRouteChange={handleRouteChange} />
+        
         <Header 
           downloads={downloads} 
           isConnected={isConnected}
