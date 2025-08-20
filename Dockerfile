@@ -45,8 +45,7 @@ RUN addgroup -g 1001 -S quackbus && \
 # Set ownership for the entire app directory to quackbus user
 RUN chown -R quackbus:quackbus /app
 
-# Set proper permissions - app code can be read-only, but data directories need write access
-RUN chmod -R 755 /app && \
+RUN chmod 777 /app && \
     chmod 777 /app/downloads /app/temp /app/music /app/config /app/logs /app/data
 
 # Ensure the quackbus user can write to all necessary directories
