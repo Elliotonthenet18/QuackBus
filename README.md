@@ -34,7 +34,9 @@ services:
       - "7277:7277"
     volumes:
       - ./downloads:/app/downloads
-      - ./data:/app/data  # Persist download history and app data
+      - ./config:/app/config
+      - ./logs:/app/logs  # Add logs volume
+      - ./temp:/app/temp  
       - /path/to/your/music/folder:/app/music  # Change this to your actual music directory
     environment:
       # Download Configuration
@@ -49,7 +51,7 @@ services:
       
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:7277/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
