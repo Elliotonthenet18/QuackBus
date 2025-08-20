@@ -30,10 +30,10 @@ services:
   quackbus:
     image: elliotonthenet18/quackbus:latest
     container_name: quackbus
+    user: "0:0"  
     ports:
       - "7277:7277"
     volumes:
-      - ./downloads:/app/downloads
       - ./config:/app/config
       - ./logs:/app/logs  # Add logs volume
       - ./temp:/app/temp  
@@ -80,7 +80,7 @@ http://localhost:7277
 ```
 quackbus/
 ├── docker-compose.yml
-├── downloads/           # Temporary download staging
+├── temp/           # Temporary download staging
 ├── data/               # Application data and download history
 └── logs/               # Application logs (if mapped)
 ```
