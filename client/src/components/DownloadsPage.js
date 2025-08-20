@@ -1,7 +1,24 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import axios from 'axios';
 import { Download, X, Music, Clock, CheckCircle, AlertCircle, Loader } from 'lucide-react';
 
 const DownloadsPage = ({ downloads, onCancel }) => {
+  // Fetch downloads when component mounts to ensure fresh data
+  useEffect(() => {
+    const fetchDownloads = async () => {
+      try {
+        console.log('Fetching current downloads on page load...');
+        await axios.get('/api/downloads');
+        // The parent component (App.js) should handle the response via WebSocket
+        // This just triggers a fresh fetch to make sure we have current data
+      } catch (error) {
+        console.error('Failed to fetch downloads:', error);
+      }
+    };
+
+    fetchDownloads();
+  }, []); // Run once when component mounts
+
   const getStatusIcon = (status) => {
     switch (status) {
       case 'downloading':
@@ -32,6 +49,8 @@ const DownloadsPage = ({ downloads, onCancel }) => {
         return `Downloading (${download.progress || 0}%)`;
       case 'processing':
         return 'Processing metadata...';
+      case 'moving files':
+        return 'Moving files to final location...';
       case 'completed':
         if (download.type === 'album') {
           const failed = download.failedTracks || 0;
@@ -49,7 +68,10 @@ const DownloadsPage = ({ downloads, onCancel }) => {
         if (download.status && download.status.startsWith('downloading track')) {
           return download.status;
         }
-        return 'Unknown';
+        if (download.status && download.status.startsWith('retry in')) {
+          return download.status;
+        }
+        return download.status || 'Unknown';
     }
   };
 
@@ -107,7 +129,7 @@ const DownloadsPage = ({ downloads, onCancel }) => {
                   </div>
                 )}
                 
-                {(download.status === 'downloading' || download.status === 'processing' || download.status?.startsWith('downloading track')) && (
+                {(download.status === 'downloading' || download.status === 'processing' || download.status?.startsWith('downloading track') || download.status === 'moving files') && (
                   <div className="progress-bar">
                     <div 
                       className="progress-fill" 
@@ -129,7 +151,7 @@ const DownloadsPage = ({ downloads, onCancel }) => {
               </div>
               
               <div className="download-actions">
-                {(download.status === 'queued' || download.status === 'downloading' || download.status?.startsWith('downloading track')) && (
+                {(download.status === 'queued' || download.status === 'downloading' || download.status?.startsWith('downloading track') || download.status?.startsWith('retry in')) && (
                   <button 
                     onClick={() => onCancel(download.id)}
                     className="btn btn-danger"
