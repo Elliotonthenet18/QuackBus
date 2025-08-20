@@ -8,6 +8,7 @@ services:
       - ./downloads:/app/downloads
       - ./config:/app/config
       - ./logs:/app/logs  # Add logs volume
+      - ./temp:/app/temp  
       - /path/to/your/music/folder:/app/music  # Change this to your actual music directory
     environment:
       # Download Configuration
