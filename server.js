@@ -188,7 +188,7 @@ app.get('/api/search', async (req, res) => {
 app.get('/api/album/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    console.log(`📀 Getting album: ${id}`);
+    console.log(`💿 Getting album: ${id}`);
     
     const albumUrl = `${API_BASE_URL}/album?albumId=${id}`;
     console.log(`🌐 API call: ${albumUrl}`);
@@ -337,7 +337,7 @@ app.post('/api/download/album', async (req, res) => {
     }
 
     // First get album details with all tracks
-    console.log(`📀 Getting album details for: ${albumId}`);
+    console.log(`💿 Getting album details for: ${albumId}`);
     const albumUrl = `${API_BASE_URL}/album?albumId=${albumId}`;
     console.log(`🌐 API call: ${albumUrl}`);
     
@@ -368,12 +368,12 @@ app.post('/api/download/album', async (req, res) => {
       image: { large: album.cover },
       release_date_original: album.releaseDate,
       tracks: {
-        items: album.tracks.map(track => ({
+        items: album.tracks.map((track, index) => ({
           id: track.id,
           title: track.title,
           performer: { name: track.artist },
           artist: track.artist,
-          track_number: track.trackNumber || 1,
+          track_number: track.trackNumber || (index + 1), // Fix: Use actual track number or fallback to index + 1
           duration: track.duration
         }))
       }
@@ -404,7 +404,7 @@ app.post('/api/download/album', async (req, res) => {
 async function startAlbumDownload(downloadId, albumId, album, quality) {
   try {
     console.log(`\n🚀 === STARTING ALBUM DOWNLOAD ${downloadId} ===`);
-    console.log(`📀 Album: "${album.title}" by ${album.artist?.name}`);
+    console.log(`💿 Album: "${album.title}" by ${album.artist?.name}`);
     console.log(`📊 Total tracks: ${album.tracks.items.length}`);
     
     const albumDownloadInfo = {
@@ -458,7 +458,7 @@ async function startAlbumDownload(downloadId, albumId, album, quality) {
     await fs.ensureDir(tempAlbumDir);
     
     // Download album artwork to temp folder
-    await downloadAlbumArtwork(album, tempAlbumDir);
+    const albumArtworkPath = await downloadAlbumArtwork(album, tempAlbumDir);
     
     // Download each track to temp folder with retry logic
     for (let i = 0; i < album.tracks.items.length; i++) {
@@ -496,7 +496,7 @@ async function startAlbumDownload(downloadId, albumId, album, quality) {
           
           // Download and process this track in temp folder
           const trackDownloadId = `${downloadId}_track_${track.id}`;
-          await downloadSingleTrackForAlbumToTemp(trackDownloadId, track, album, data.url, quality, tempAlbumDir);
+          await downloadSingleTrackForAlbumToTemp(trackDownloadId, track, album, data.url, quality, tempAlbumDir, albumArtworkPath);
           
           // Track completed successfully
           trackCompleted = true;
@@ -629,7 +629,7 @@ async function startAlbumDownload(downloadId, albumId, album, quality) {
 }
 
 // Download a single track as part of an album download to temp folder with retry logic
-async function downloadSingleTrackForAlbumToTemp(trackDownloadId, track, album, fileUrl, quality, tempAlbumDir) {
+async function downloadSingleTrackForAlbumToTemp(trackDownloadId, track, album, fileUrl, quality, tempAlbumDir, albumArtworkPath) {
   let tempFilePath = null;
   const maxRetries = 3;
   
@@ -659,9 +659,9 @@ async function downloadSingleTrackForAlbumToTemp(trackDownloadId, track, album, 
           .substring(0, 80);            // Reasonable length
       };
       
-      // Build metadata with fallbacks
+      // Build metadata with fallbacks - FIXED track number handling
       const trackTitle = sanitize(track?.title || 'Unknown Track');
-      const trackNumber = String(track?.track_number || track?.trackNumber || 1).padStart(2, '0');
+      const trackNumber = String(track?.track_number || 1).padStart(2, '0'); // Fixed: Use track.track_number
       const fileName = `${trackNumber} - ${trackTitle}.${extension}`;
       
       // Use temp album directory for both temp file and final file
@@ -676,9 +676,9 @@ async function downloadSingleTrackForAlbumToTemp(trackDownloadId, track, album, 
       await fs.writeFile(tempFilePath, buffer);
       console.log(`✅ Downloaded to temp: ${buffer.length} bytes`);
       
-      // Step 4: Process with FFmpeg
+      // Step 4: Process with FFmpeg (including album artwork embedding)
       console.log(`🔧 Processing with FFmpeg...`);
-      await processWithFFmpeg(tempFilePath, finalFilePath, track, album);
+      await processWithFFmpeg(tempFilePath, finalFilePath, track, album, albumArtworkPath);
       console.log(`✅ FFmpeg completed`);
       
       // Step 5: Clean up temp file
@@ -912,11 +912,11 @@ async function startFileDownloadWithProcessing(downloadId, trackId, fileUrl, qua
         .substring(0, 80);            // Reasonable length
     };
     
-    // Build metadata with fallbacks
+    // Build metadata with fallbacks - FIXED track number handling
     const trackTitle = sanitize(track?.title || 'Unknown Track');
     const artistName = sanitize(track?.artist || album?.artist?.name || 'Unknown Artist');
     const albumTitle = sanitize(album?.title || track?.albumTitle || 'Unknown Album');
-    const trackNumber = String(track?.trackNumber || 1).padStart(2, '0');
+    const trackNumber = String(track?.track_number || track?.trackNumber || 1).padStart(2, '0'); // Fixed: Check both possible fields
     
     // Get year
     let year = '';
@@ -949,7 +949,7 @@ async function startFileDownloadWithProcessing(downloadId, trackId, fileUrl, qua
     console.log(`✅ Created directories`);
     
     // Step 4: Download album artwork
-    await downloadAlbumArtwork(album || { image: { large: track?.albumCover } }, albumDir);
+    const albumArtworkPath = await downloadAlbumArtwork(album || { image: { large: track?.albumCover } }, albumDir);
     
     // Step 5: Write to temp file
     const arrayBuffer = await response.arrayBuffer();
@@ -963,9 +963,9 @@ async function startFileDownloadWithProcessing(downloadId, trackId, fileUrl, qua
     downloadInfo.fileSize = buffer.length;
     broadcast({ type: 'download_update', data: downloadInfo });
     
-    // Step 6: Process with FFmpeg
+    // Step 6: Process with FFmpeg (including album artwork embedding)
     console.log(`🔧 Starting FFmpeg processing...`);
-    await processWithFFmpeg(tempFilePath, finalFilePath, track, album);
+    await processWithFFmpeg(tempFilePath, finalFilePath, track, album, albumArtworkPath);
     console.log(`✅ FFmpeg processing completed`);
     
     // Step 7: Clean up temp file
@@ -1030,17 +1030,23 @@ async function startFileDownloadWithProcessing(downloadId, trackId, fileUrl, qua
   }
 }
 
-// FFmpeg processing function
-async function processWithFFmpeg(inputFile, outputFile, track, album) {
+// UPDATED FFmpeg processing function with proper album artwork embedding
+async function processWithFFmpeg(inputFile, outputFile, track, album, albumArtworkPath) {
   return new Promise((resolve, reject) => {
     console.log(`🔧 FFmpeg: ${path.basename(inputFile)} -> ${path.basename(outputFile)}`);
     
     const command = ffmpeg(inputFile);
     
+    // Add album artwork as input if available
+    if (albumArtworkPath && fs.existsSync(albumArtworkPath)) {
+      console.log(`🖼️ Adding album artwork: ${path.basename(albumArtworkPath)}`);
+      command.input(albumArtworkPath);
+    }
+    
     // Build metadata object
     const metadata = {};
     
-    // Essential metadata
+    // Essential metadata with proper track number handling
     if (track?.title) {
       metadata.title = track.title;
       console.log(`🏷️ Title: ${track.title}`);
@@ -1061,8 +1067,10 @@ async function processWithFFmpeg(inputFile, outputFile, track, album) {
       console.log(`🏷️ Album Artist: ${metadata.albumartist}`);
     }
     
+    // FIXED: Proper track number handling
     if (track?.track_number || track?.trackNumber) {
-      metadata.track = (track.track_number || track.trackNumber).toString();
+      const trackNum = track.track_number || track.trackNumber;
+      metadata.track = trackNum.toString();
       console.log(`🏷️ Track Number: ${metadata.track}`);
     }
     
@@ -1094,8 +1102,24 @@ async function processWithFFmpeg(inputFile, outputFile, track, album) {
       }
     });
     
-    // Use copy codec to preserve quality
-    command.outputOptions('-c', 'copy');
+    // Configure streams based on whether we have artwork
+    if (albumArtworkPath && fs.existsSync(albumArtworkPath)) {
+      // Map audio from first input (the music file)
+      command.outputOptions('-map', '0:a');
+      // Map video from second input (the artwork)
+      command.outputOptions('-map', '1:0');
+      // Copy audio codec to preserve quality
+      command.outputOptions('-c:a', 'copy');
+      // Set video codec for album art
+      command.outputOptions('-c:v', 'mjpeg');
+      // Set disposition for the artwork
+      command.outputOptions('-disposition:v:0', 'attached_pic');
+      console.log(`🖼️ Embedding album artwork into file`);
+    } else {
+      // No artwork - just copy the audio
+      command.outputOptions('-c', 'copy');
+      console.log(`🎵 Processing audio only (no artwork available)`);
+    }
     
     // Add timeout protection
     const timeout = setTimeout(() => {
@@ -1112,6 +1136,7 @@ async function processWithFFmpeg(inputFile, outputFile, track, album) {
       .output(outputFile)
       .on('start', (commandLine) => {
         console.log(`🔧 FFmpeg started`);
+        console.log(`🔧 Command: ${commandLine}`);
       })
       .on('progress', (progress) => {
         if (progress.percent && progress.percent > 0) {
