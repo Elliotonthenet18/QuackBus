@@ -48,6 +48,8 @@ RUN chown -R quackbus:quackbus /app && \
 # Important: Set specific permissions for temp, music, config, and downloads directories
 RUN chmod 777 /app/temp /app/music /app/downloads /app/config /app/logs
 
+RUN chown -R quackbus:quackbus /app/temp /app/music /app/downloads /app/config /app/logs
+
 # Switch to non-root user
 USER quackbus
 
