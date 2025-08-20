@@ -34,28 +34,30 @@ RUN npm run build
 # Go back to app root
 WORKDIR /app
 
-# Create necessary directories
-RUN mkdir -p /app/downloads /app/temp /app/music /app/config /app/logs
+# Create necessary directories with proper permissions from the start
+RUN mkdir -p /app/downloads /app/temp /app/music /app/config /app/logs /app/data && \
+    chmod 777 /app/downloads /app/temp /app/music /app/config /app/logs /app/data
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S quackbus && \
     adduser -S quackbus -u 1001 -G quackbus
 
-# Set ownership and permissions - this is the key part
-RUN chown -R quackbus:quackbus /app && \
-    chmod -R 755 /app
+# Set ownership for the entire app directory to quackbus user
+RUN chown -R quackbus:quackbus /app
 
-# Important: Set specific permissions for temp, music, config, and downloads directories
-RUN chmod 777 /app/temp /app/music /app/downloads /app/config /app/logs
+# Set proper permissions - app code can be read-only, but data directories need write access
+RUN chmod -R 755 /app && \
+    chmod 777 /app/downloads /app/temp /app/music /app/config /app/logs /app/data
 
-RUN chown -R quackbus:quackbus /app/temp /app/music /app/downloads /app/config /app/logs
+# Ensure the quackbus user can write to all necessary directories
+RUN chown -R quackbus:quackbus /app/downloads /app/temp /app/music /app/config /app/logs /app/data
 
 # Switch to non-root user
 USER quackbus
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:3000/health || exit 1
+    CMD curl -f http://localhost:7277/health || exit 1
 
 # Expose port
 EXPOSE 7277
