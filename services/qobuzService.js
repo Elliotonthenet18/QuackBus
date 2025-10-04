@@ -1,8 +1,8 @@
-// Service for interacting with the new dab.yeet.su API
+// Service for interacting with the qobuz-proxy API
 const fs = require('fs-extra');
 const path = require('path');
 
-const API_BASE_URL = 'https://dab.yeet.su/api';
+const API_BASE_URL = 'https://qobuz-proxy.authme.workers.dev/api';
 
 class QobuzService {
   constructor() {
@@ -12,8 +12,16 @@ class QobuzService {
   // Search for albums or tracks
   async search(query, type = 'album', limit = 25, offset = 0) {
     try {
-      const searchUrl = `${this.baseUrl}/search?q=${encodeURIComponent(query)}&offset=${offset}&type=${type}&limit=${limit}`;
-      console.log(`🌐 Searching: ${searchUrl}`);
+      let searchUrl;
+      
+      // Different endpoints for different search types
+      if (type === 'track' || type === 'tracks') {
+        searchUrl = `${this.baseUrl}/search?query=${encodeURIComponent(query)}&type=tracks&limit=${limit}`;
+      } else {
+        searchUrl = `${this.baseUrl}/get-music?q=${encodeURIComponent(query)}&limit=${limit}`;
+      }
+      
+      console.log(`Searching: ${searchUrl}`);
       
       const response = await fetch(searchUrl);
       
@@ -24,7 +32,7 @@ class QobuzService {
       const data = await response.json();
       return data;
     } catch (error) {
-      console.error('❌ Search error:', error);
+      console.error('Search error:', error);
       throw error;
     }
   }
@@ -32,8 +40,8 @@ class QobuzService {
   // Get album details with tracks
   async getAlbum(albumId) {
     try {
-      const albumUrl = `${this.baseUrl}/album?albumId=${albumId}`;
-      console.log(`🌐 Getting album: ${albumUrl}`);
+      const albumUrl = `${this.baseUrl}/get-album?album_id=${albumId}`;
+      console.log(`Getting album: ${albumUrl}`);
       
       const response = await fetch(albumUrl);
       
@@ -44,7 +52,7 @@ class QobuzService {
       const data = await response.json();
       return data;
     } catch (error) {
-      console.error('❌ Album fetch error:', error);
+      console.error('Album fetch error:', error);
       throw error;
     }
   }
@@ -52,11 +60,11 @@ class QobuzService {
   // Get track details (if needed)
   async getTrack(trackId) {
     try {
-      // The new API doesn't seem to have a specific track endpoint
+      // The API doesn't have a specific track endpoint
       // We'll return the trackId for now, and rely on search results for track data
       return { id: trackId };
     } catch (error) {
-      console.error('❌ Track fetch error:', error);
+      console.error('Track fetch error:', error);
       throw error;
     }
   }
@@ -64,8 +72,8 @@ class QobuzService {
   // Get stream URL for a track
   async getTrackFileUrl(trackId, quality = 7) {
     try {
-      const streamUrl = `${this.baseUrl}/stream?trackId=${trackId}&quality=${quality}`;
-      console.log(`🌐 Getting stream URL: ${streamUrl}`);
+      const streamUrl = `${this.baseUrl}/download-music?track_id=${trackId}&quality=${quality}`;
+      console.log(`Getting stream URL: ${streamUrl}`);
       
       const response = await fetch(streamUrl);
       
@@ -76,7 +84,7 @@ class QobuzService {
       const data = await response.json();
       return data;
     } catch (error) {
-      console.error('❌ Stream URL error:', error);
+      console.error('Stream URL error:', error);
       throw error;
     }
   }
@@ -165,7 +173,7 @@ class QobuzService {
 
   // Transform search results to match expected frontend format
   transformSearchResults(results, type) {
-    if (type === 'track') {
+    if (type === 'track' || type === 'tracks') {
       return {
         tracks: {
           items: results.tracks || []
@@ -184,29 +192,32 @@ class QobuzService {
 
   // Transform album data to match expected format
   transformAlbumData(albumData) {
+    // Handle both response formats
+    const album = albumData.album || albumData;
+    
     return {
       album: {
-        id: albumData.id,
-        title: albumData.title,
+        id: album.id,
+        title: album.title,
         artist: {
-          name: albumData.artist
+          name: album.artist?.name || album.artist
         },
         image: {
-          large: albumData.cover,
-          medium: albumData.cover,
-          small: albumData.cover
+          large: album.cover || album.image?.large,
+          medium: album.cover || album.image?.medium,
+          small: album.cover || album.image?.small
         },
-        release_date_original: albumData.releaseDate,
+        release_date_original: album.releaseDate || album.release_date_original,
         genre: {
-          name: albumData.genre
+          name: album.genre?.name || album.genre
         },
         label: {
-          name: albumData.label
+          name: album.label?.name || album.label
         },
         tracks: {
-          items: albumData.tracks || []
+          items: album.tracks?.items || album.tracks || []
         },
-        tracks_count: albumData.trackCount
+        tracks_count: album.trackCount || album.tracks_count
       }
     };
   }
@@ -216,17 +227,17 @@ class QobuzService {
     return {
       id: track.id,
       title: track.title,
-      artist: track.artist,
+      artist: track.artist || track.performer?.name,
       albumTitle: track.albumTitle || album?.title,
-      albumCover: track.albumCover || album?.cover,
+      albumCover: track.albumCover || album?.cover || album?.image?.large,
       albumId: track.albumId || album?.id,
-      releaseDate: track.releaseDate || album?.releaseDate,
+      releaseDate: track.releaseDate || album?.releaseDate || album?.release_date_original,
       duration: track.duration,
-      trackNumber: track.trackNumber || 1,
+      trackNumber: track.trackNumber || track.track_number || 1,
       performer: {
-        name: track.artist
+        name: track.artist || track.performer?.name
       },
-      track_number: track.trackNumber || 1
+      track_number: track.trackNumber || track.track_number || 1
     };
   }
 
@@ -234,16 +245,16 @@ class QobuzService {
   async downloadArtwork(imageUrl, outputPath) {
     try {
       if (!imageUrl) {
-        console.log('⚠️ No artwork URL provided');
+        console.log('No artwork URL provided');
         return null;
       }
 
-      console.log(`🖼️ Downloading artwork: ${imageUrl}`);
+      console.log(`Downloading artwork: ${imageUrl}`);
       
       const response = await fetch(imageUrl);
       
       if (!response.ok) {
-        console.log(`⚠️ Failed to download artwork: ${response.status}`);
+        console.log(`Failed to download artwork: ${response.status}`);
         return null;
       }
       
@@ -256,11 +267,11 @@ class QobuzService {
       // Write file
       await fs.writeFile(outputPath, buffer);
       
-      console.log(`✅ Artwork saved: ${path.basename(outputPath)} (${Math.round(buffer.length / 1024)} KB)`);
+      console.log(`Artwork saved: ${path.basename(outputPath)} (${Math.round(buffer.length / 1024)} KB)`);
       
       return outputPath;
     } catch (error) {
-      console.error('❌ Artwork download failed:', error);
+      console.error('Artwork download failed:', error);
       return null;
     }
   }
