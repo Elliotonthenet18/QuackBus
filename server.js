@@ -12,20 +12,19 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 const PORT = process.env.PORT || 7277;
 
-// API base URL for the new service
-const API_BASE_URL = 'https://dab.yeet.su/api';
+// API base URL - using qobuz-proxy
+const API_BASE_URL = 'https://qobuz-proxy.authme.workers.dev/api';
 
 // Active downloads tracking
 const activeDownloads = new Map();
 
-// Download history storage - use internal app directory instead of config volume
+// Download history storage - use internal app directory
 let downloadHistory = [];
 const historyFilePath = path.join(__dirname, 'data', 'download_history.json');
 
 // Load download history on startup
 async function loadDownloadHistory() {
   try {
-    // Check if we have enough space before trying to create directories
     try {
       await fs.ensureDir(path.dirname(historyFilePath));
     } catch (dirError) {
@@ -50,7 +49,6 @@ async function loadDownloadHistory() {
 // Save download history
 async function saveDownloadHistory() {
   try {
-    // Skip saving if no disk space
     try {
       await fs.ensureDir(path.dirname(historyFilePath));
     } catch (dirError) {
@@ -153,10 +151,10 @@ app.get('/health', (req, res) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
-// Search for music using new API
+// Search for music using qobuz-proxy API
 app.get('/api/search', async (req, res) => {
   try {
-    const { query, type = 'album', limit = 25, offset = 0 } = req.query;
+    const { query, type = 'albums', limit = 25 } = req.query;
     
     if (!query) {
       return res.status(400).json({ error: 'Query parameter is required' });
@@ -164,7 +162,14 @@ app.get('/api/search', async (req, res) => {
 
     console.log(`Searching for: "${query}" (type: ${type})`);
     
-    const searchUrl = `${API_BASE_URL}/search?q=${encodeURIComponent(query)}&offset=${offset}&type=${type}&limit=${limit}`;
+    // Use different endpoints based on search type
+    let searchUrl;
+    if (type === 'tracks') {
+      searchUrl = `${API_BASE_URL}/search?query=${encodeURIComponent(query)}&type=tracks&limit=${limit}`;
+    } else {
+      searchUrl = `${API_BASE_URL}/get-music?q=${encodeURIComponent(query)}&limit=${limit}`;
+    }
+    
     console.log(`API call: ${searchUrl}`);
     
     const response = await fetch(searchUrl);
@@ -174,23 +179,20 @@ app.get('/api/search', async (req, res) => {
       throw new Error(`API error: ${response.status}`);
     }
     
-    console.log(`${type}s found: ${results[type + 's']?.length || 0}`);
+    console.log(`Albums found: ${results.albums?.items?.length || 0}`);
+    console.log(`Tracks found: ${results.tracks?.items?.length || 0}`);
     
-    // Transform to match expected frontend format
+    // Ensure proper response format based on type requested
     let searchResults;
-    if (type === 'track') {
+    if (type === 'tracks') {
       searchResults = {
-        tracks: {
-          items: results.tracks || []
-        },
+        tracks: results.tracks || { items: [] },
         albums: { items: [] }
       };
     } else {
       searchResults = {
-        albums: {
-          items: results.albums || []
-        },
-        tracks: { items: [] }
+        albums: results.albums || { items: [] },
+        tracks: results.tracks || { items: [] }
       };
     }
     
@@ -201,13 +203,13 @@ app.get('/api/search', async (req, res) => {
   }
 });
 
-// Get album details using new API
+// Get album details using qobuz-proxy API
 app.get('/api/album/:id', async (req, res) => {
   try {
     const { id } = req.params;
     console.log(`Getting album: ${id}`);
     
-    const albumUrl = `${API_BASE_URL}/album?albumId=${id}`;
+    const albumUrl = `${API_BASE_URL}/get-album?album_id=${id}`;
     console.log(`API call: ${albumUrl}`);
     
     const response = await fetch(albumUrl);
@@ -218,62 +220,16 @@ app.get('/api/album/:id', async (req, res) => {
     }
     
     const albumData = await response.json();
-    console.log(`Album data received for: ${albumData.album?.title || 'Unknown Album'}`);
+    console.log(`Album data received for: ${albumData.title || albumData.album?.title || 'Unknown Album'}`);
     
-    // Extract the actual album data from the nested structure
-    const album = albumData.album;
-    
-    // Transform album data to match expected format
-    const transformedAlbum = {
-      album: {
-        id: album.id,
-        title: album.title,
-        artist: {
-          name: album.artist
-        },
-        image: {
-          large: album.cover,
-          medium: album.cover,
-          small: album.cover
-        },
-        release_date_original: album.releaseDate,
-        genre: {
-          name: album.genre
-        },
-        ...(album.label && {
-          label: {
-            name: album.label
-          }
-        }),
-        tracks: {
-          items: (album.tracks || []).map((track, index) => ({
-            id: track.id,
-            title: track.title,
-            performer: {
-              name: track.artist
-            },
-            artist: track.artist,
-            track_number: track.trackNumber || (index + 1),
-            duration: track.duration,
-            albumId: track.albumId,
-            albumTitle: track.albumTitle,
-            albumCover: track.albumCover
-          }))
-        },
-        tracks_count: album.trackCount || (album.tracks ? album.tracks.length : 0),
-        duration: album.duration,
-        audioQuality: album.audioQuality
-      }
-    };
-    
-    res.json(transformedAlbum);
+    res.json(albumData);
   } catch (error) {
     console.error('Album fetch error:', error);
     res.status(500).json({ error: 'Failed to fetch album', details: error.message });
   }
 });
 
-// Download track with new API
+// Download track with qobuz-proxy API
 app.post('/api/download/track', async (req, res) => {
   try {
     const { trackId, quality = 7, trackData } = req.body;
@@ -287,22 +243,12 @@ app.post('/api/download/track', async (req, res) => {
 
     // Use provided track data from search results
     let track = trackData;
-    let album = null;
+    let album = trackData?.album;
 
-    // If we have albumId in track data, create album object
-    if (track?.albumId) {
-      album = {
-        title: track.albumTitle,
-        artist: { name: track.artist },
-        image: { large: track.albumCover },
-        release_date_original: track.releaseDate
-      };
-    }
-
-    console.log(`Track: "${track?.title}" by ${track?.artist}`);
+    console.log(`Track: "${track?.title}" by ${track?.performer?.name}`);
     console.log(`Album: "${album?.title}" by ${album?.artist?.name}`);
 
-    const downloadUrl = `${API_BASE_URL}/stream?trackId=${trackId}&quality=${quality}`;
+    const downloadUrl = `${API_BASE_URL}/download-music?track_id=${trackId}&quality=${quality}`;
     console.log(`API call: ${downloadUrl}`);
     
     const response = await fetch(downloadUrl);
@@ -342,7 +288,7 @@ app.post('/api/download/track', async (req, res) => {
   }
 });
 
-// Download entire album using new API
+// Download entire album using qobuz-proxy API
 app.post('/api/download/album', async (req, res) => {
   try {
     const { albumId, quality = 7 } = req.body;
@@ -355,7 +301,7 @@ app.post('/api/download/album', async (req, res) => {
 
     // First get album details with all tracks
     console.log(`Getting album details for: ${albumId}`);
-    const albumUrl = `${API_BASE_URL}/album?albumId=${albumId}`;
+    const albumUrl = `${API_BASE_URL}/get-album?album_id=${albumId}`;
     console.log(`API call: ${albumUrl}`);
     
     const albumResponse = await fetch(albumUrl);
@@ -366,48 +312,27 @@ app.post('/api/download/album', async (req, res) => {
     }
     
     const albumData = await albumResponse.json();
+    const album = albumData.album || albumData;
     
-    // Extract the actual album data from the nested structure
-    const album = albumData.album;
-    
-    if (!album.tracks || album.tracks.length === 0) {
+    if (!album.tracks?.items || album.tracks.items.length === 0) {
       return res.status(400).json({ error: 'No tracks found in album' });
     }
     
-    console.log(`Album: "${album.title}" by ${album.artist}`);
-    console.log(`Found ${album.tracks.length} tracks in album`);
-    
-    // Transform album data to expected format for internal processing
-    const transformedAlbum = {
-      id: album.id,
-      title: album.title,
-      artist: { name: album.artist },
-      image: { large: album.cover },
-      release_date_original: album.releaseDate,
-      tracks: {
-        items: album.tracks.map((track, index) => ({
-          id: track.id,
-          title: track.title,
-          performer: { name: track.artist },
-          artist: track.artist,
-          track_number: track.trackNumber || (index + 1),
-          duration: track.duration
-        }))
-      }
-    };
+    console.log(`Album: "${album.title}" by ${album.artist?.name}`);
+    console.log(`Found ${album.tracks.items.length} tracks in album`);
     
     const downloadId = 'album-' + Date.now();
     
     // Start the album download process
     setImmediate(() => {
-      startAlbumDownload(downloadId, albumId, transformedAlbum, quality);
+      startAlbumDownload(downloadId, albumId, album, quality);
     });
     
     res.json({ 
       downloadId,
       message: 'Album download started',
       albumId: albumId,
-      trackCount: transformedAlbum.tracks.items.length,
+      trackCount: album.tracks.items.length,
       quality: quality
     });
     
@@ -500,8 +425,8 @@ async function startAlbumDownload(downloadId, albumId, album, quality) {
           albumDownloadInfo.currentTrack = track.title;
           broadcast({ type: 'download_update', data: albumDownloadInfo });
           
-          // Get download URL for this track using new API
-          const downloadUrl = `${API_BASE_URL}/stream?trackId=${track.id}&quality=${quality}`;
+          // Get download URL for this track using qobuz-proxy API
+          const downloadUrl = `${API_BASE_URL}/download-music?track_id=${track.id}&quality=${quality}`;
           console.log(`API call: ${downloadUrl}`);
           
           const response = await fetch(downloadUrl);
@@ -842,7 +767,7 @@ async function startFileDownloadWithProcessing(downloadId, trackId, fileUrl, qua
   try {
     console.log(`\n=== STARTING DOWNLOAD ${downloadId} ===`);
     console.log(`Track ID: ${trackId}`);
-    console.log(`Track: "${track?.title || 'Unknown'}" by ${track?.artist || 'Unknown'}`);
+    console.log(`Track: "${track?.title || 'Unknown'}" by ${track?.performer?.name || 'Unknown'}`);
     console.log(`Album: "${album?.title || 'Unknown'}" by ${album?.artist?.name || 'Unknown'}`);
     
     const downloadInfo = {
@@ -853,7 +778,7 @@ async function startFileDownloadWithProcessing(downloadId, trackId, fileUrl, qua
       progress: 0,
       startTime: new Date().toISOString(),
       title: track?.title || `Track ${trackId}`,
-      artist: track?.artist || album?.artist?.name || 'Unknown Artist'
+      artist: track?.performer?.name || album?.artist?.name || 'Unknown Artist'
     };
     
     activeDownloads.set(downloadId, downloadInfo);
@@ -885,17 +810,17 @@ async function startFileDownloadWithProcessing(downloadId, trackId, fileUrl, qua
     
     // Build metadata with fallbacks
     const trackTitle = sanitize(track?.title || 'Unknown Track');
-    const artistName = sanitize(track?.artist || album?.artist?.name || 'Unknown Artist');
-    const albumTitle = sanitize(album?.title || track?.albumTitle || 'Unknown Album');
-    const trackNumber = String(track?.track_number || track?.trackNumber || 1).padStart(2, '0');
+    const artistName = sanitize(track?.performer?.name || album?.artist?.name || 'Unknown Artist');
+    const albumTitle = sanitize(album?.title || 'Unknown Album');
+    const trackNumber = String(track?.track_number || 1).padStart(2, '0');
     
     // Get year
     let year = '';
-    if (album?.release_date_original || track?.releaseDate) {
+    if (album?.release_date_original) {
       try {
-        year = new Date(album?.release_date_original || track?.releaseDate).getFullYear();
+        year = new Date(album.release_date_original).getFullYear();
       } catch (e) {
-        console.log(`Could not parse year from: ${album?.release_date_original || track?.releaseDate}`);
+        console.log(`Could not parse year from: ${album.release_date_original}`);
       }
     }
     
@@ -920,7 +845,7 @@ async function startFileDownloadWithProcessing(downloadId, trackId, fileUrl, qua
     console.log(`Created directories`);
     
     // Step 4: Download album artwork
-    const albumArtworkPath = await downloadAlbumArtwork(album || { image: { large: track?.albumCover } }, albumDir);
+    const albumArtworkPath = await downloadAlbumArtwork(album || track?.album, albumDir);
     
     // Step 5: Write to temp file
     const arrayBuffer = await response.arrayBuffer();
@@ -1016,8 +941,8 @@ async function processWithFFmpeg(inputFile, outputFile, track, album, albumArtwo
       console.log(`Title: ${track.title}`);
     }
     
-    if (track?.performer?.name || track?.artist) {
-      metadata.artist = track.performer?.name || track.artist;
+    if (track?.performer?.name) {
+      metadata.artist = track.performer.name;
       console.log(`Artist: ${metadata.artist}`);
     }
     
@@ -1026,15 +951,14 @@ async function processWithFFmpeg(inputFile, outputFile, track, album, albumArtwo
       console.log(`Album: ${album.title}`);
     }
     
-    if (album?.artist?.name || album?.artist) {
-      metadata.albumartist = album.artist?.name || album.artist;
+    if (album?.artist?.name) {
+      metadata.albumartist = album.artist.name;
       console.log(`Album Artist: ${metadata.albumartist}`);
     }
     
     // Proper track number handling
-    if (track?.track_number || track?.trackNumber) {
-      const trackNum = track.track_number || track.trackNumber;
-      metadata.track = trackNum.toString();
+    if (track?.track_number) {
+      metadata.track = track.track_number.toString();
       console.log(`Track Number: ${metadata.track}`);
     }
     
@@ -1049,13 +973,13 @@ async function processWithFFmpeg(inputFile, outputFile, track, album, albumArtwo
       }
     }
     
-    if (album?.genre?.name || album?.genre) {
-      metadata.genre = album.genre?.name || album.genre;
+    if (album?.genre?.name) {
+      metadata.genre = album.genre.name;
       console.log(`Genre: ${metadata.genre}`);
     }
     
-    if (album?.label?.name || album?.label) {
-      metadata.publisher = album.label?.name || album.label;
+    if (album?.label?.name) {
+      metadata.publisher = album.label.name;
       console.log(`Label: ${metadata.publisher}`);
     }
     
@@ -1167,7 +1091,7 @@ server.listen(PORT, () => {
   console.log(`Build path: ${buildPath}`);
   console.log(`Music directory: ${process.env.DOWNLOAD_PATH || '/app/music'}`);
   console.log(`Data directory: ${path.join(__dirname, 'data')}`);
-  console.log(`Ready for downloads with new dab.yeet.su API!`);
+  console.log(`Ready for downloads with qobuz-proxy API!`);
   
   // Ensure directories exist with error handling for low disk space
   const musicDir = process.env.DOWNLOAD_PATH || '/app/music';
