@@ -94,8 +94,11 @@ const SearchPage = ({ onDownload, showToast }) => {
 
     return (
       <div style={{ display: 'grid', gap: '1.5rem' }}>
-        {results.albums.items.map((album) => (
-          <div key={album.id} style={{
+        {results.albums.items.map((album) => {
+          // Handle both API response formats
+          const albumData = album.content || album;
+          return (
+          <div key={albumData.id} style={{
             background: 'rgba(255, 255, 255, 0.05)',
             borderRadius: '12px',
             padding: '1.5rem',
@@ -114,8 +117,8 @@ const SearchPage = ({ onDownload, showToast }) => {
             e.currentTarget.style.transform = 'translateY(0)';
           }}>
             <img 
-              src={album.cover || album.image?.large || 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"%3E%3Crect fill="%23333" width="200" height="200"/%3E%3Ctext x="50%25" y="50%25" fill="%23666" font-size="60" text-anchor="middle" dy=".3em"%3E♪%3C/text%3E%3C/svg%3E'} 
-              alt={album.title}
+              src={albumData.image?.large || albumData.cover || 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"%3E%3Crect fill="%23333" width="200" height="200"/%3E%3Ctext x="50%25" y="50%25" fill="%23666" font-size="60" text-anchor="middle" dy=".3em"%3E♪%3C/text%3E%3C/svg%3E'} 
+              alt={albumData.title}
               style={{
                 width: '120px',
                 height: '120px',
@@ -138,14 +141,14 @@ const SearchPage = ({ onDownload, showToast }) => {
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap'
               }}>
-                {album.title}
+                {albumData.title}
               </h3>
               <p style={{ 
                 color: '#0ea5e9', 
                 marginBottom: '0.75rem',
                 fontSize: '1rem'
               }}>
-                {album.artist}
+                {albumData.artist?.name || albumData.artist}
               </p>
               <div style={{ 
                 display: 'flex', 
@@ -155,20 +158,20 @@ const SearchPage = ({ onDownload, showToast }) => {
                 color: '#888',
                 alignItems: 'center'
               }}>
-                {album.trackCount && <span>{album.trackCount} tracks</span>}
-                {album.releaseDate && (
+                {(albumData.tracks_count || albumData.trackCount) && <span>{albumData.tracks_count || albumData.trackCount} tracks</span>}
+                {(albumData.release_date_original || albumData.releaseDate) && (
                   <>
                     <span>•</span>
-                    <span>{new Date(album.releaseDate).getFullYear()}</span>
+                    <span>{new Date(albumData.release_date_original || albumData.releaseDate).getFullYear()}</span>
                   </>
                 )}
-                {album.genre && (
+                {(albumData.genre?.name || albumData.genre) && (
                   <>
                     <span>•</span>
-                    <span>{album.genre}</span>
+                    <span>{albumData.genre?.name || albumData.genre}</span>
                   </>
                 )}
-                {album.audioQuality?.isHiRes && (
+                {(albumData.hires || albumData.audioQuality?.isHiRes) && (
                   <span style={{ 
                     background: 'linear-gradient(45deg, #0ea5e9, #10b981)', 
                     color: 'white', 
@@ -180,10 +183,16 @@ const SearchPage = ({ onDownload, showToast }) => {
                     Hi-Res
                   </span>
                 )}
-                {album.audioQuality && (
+                {(albumData.maximum_bit_depth && albumData.maximum_sampling_rate) && (
                   <>
                     <span>•</span>
-                    <span>{album.audioQuality.maximumBitDepth}bit/{album.audioQuality.maximumSamplingRate}kHz</span>
+                    <span>{albumData.maximum_bit_depth}bit/{albumData.maximum_sampling_rate}kHz</span>
+                  </>
+                )}
+                {(albumData.audioQuality && !albumData.maximum_bit_depth) && (
+                  <>
+                    <span>•</span>
+                    <span>{albumData.audioQuality.maximumBitDepth}bit/{albumData.audioQuality.maximumSamplingRate}kHz</span>
                   </>
                 )}
               </div>
@@ -194,7 +203,7 @@ const SearchPage = ({ onDownload, showToast }) => {
               flexShrink: 0
             }}>
               <Link 
-                to={`/album/${album.id}`} 
+                to={`/album/${albumData.id}`} 
                 style={{
                   padding: '0.75rem 1.25rem',
                   background: 'rgba(255, 255, 255, 0.1)',
@@ -218,7 +227,7 @@ const SearchPage = ({ onDownload, showToast }) => {
                 View Album
               </Link>
               <button 
-                onClick={() => handleDownload('album', album.id)}
+                onClick={() => handleDownload('album', albumData.id)}
                 style={{
                   padding: '0.75rem 1.25rem',
                   background: 'linear-gradient(135deg, #0ea5e9, #0284c7)',
@@ -246,7 +255,7 @@ const SearchPage = ({ onDownload, showToast }) => {
               </button>
             </div>
           </div>
-        ))}
+        )})}
       </div>
     );
   };
