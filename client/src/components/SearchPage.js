@@ -5,7 +5,7 @@ import { Search, Download, Music, Clock, Star } from 'lucide-react';
 
 const SearchPage = ({ onDownload, showToast }) => {
   const [query, setQuery] = useState('');
-  const [searchType, setSearchType] = useState('album');
+  const [searchType, setSearchType] = useState('albums'); // Changed to plural
   const [quality, setQuality] = useState(7);
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -27,7 +27,7 @@ const SearchPage = ({ onDownload, showToast }) => {
       const response = await axios.get('/api/search', {
         params: {
           query: query.trim(),
-          type: searchType,
+          type: searchType, // Will be 'albums' or 'tracks'
           limit: 25
         }
       });
@@ -55,14 +55,21 @@ const SearchPage = ({ onDownload, showToast }) => {
       const trackData = {
         id: track.id,
         title: track.title,
-        artist: track.artist,
-        albumTitle: track.albumTitle,
-        albumCover: track.albumCover,
-        albumId: track.albumId,
-        releaseDate: track.releaseDate,
+        artist: track.artist || track.performer?.name,
+        albumTitle: track.albumTitle || track.album?.title,
+        albumCover: track.albumCover || track.album?.image?.large,
+        albumId: track.albumId || track.album?.id,
+        releaseDate: track.releaseDate || track.album?.release_date_original,
         duration: track.duration,
-        trackNumber: track.trackNumber || 1
+        trackNumber: track.trackNumber || track.track_number || 1,
+        performer: {
+          name: track.artist || track.performer?.name
+        },
+        track_number: track.trackNumber || track.track_number || 1,
+        album: track.album // Pass the entire album object if available
       };
+
+      console.log('Downloading track with data:', trackData);
 
       await axios.post('/api/download/track', {
         trackId: track.id,
@@ -265,8 +272,12 @@ const SearchPage = ({ onDownload, showToast }) => {
 
     return (
       <div style={{ display: 'grid', gap: '1.5rem' }}>
-        {results.tracks.items.map((track) => (
-          <div key={track.id} style={{
+        {results.tracks.items.map((track) => {
+          // Handle different API response formats for tracks
+          const trackData = track.content || track;
+          
+          return (
+          <div key={trackData.id} style={{
             background: 'rgba(255, 255, 255, 0.05)',
             borderRadius: '12px',
             padding: '1.5rem',
@@ -285,8 +296,8 @@ const SearchPage = ({ onDownload, showToast }) => {
             e.currentTarget.style.transform = 'translateY(0)';
           }}>
             <img 
-              src={track.albumCover || track.image?.large || 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"%3E%3Crect fill="%23333" width="200" height="200"/%3E%3Ctext x="50%25" y="50%25" fill="%23666" font-size="60" text-anchor="middle" dy=".3em"%3E♪%3C/text%3E%3C/svg%3E'} 
-              alt={track.title}
+              src={trackData.album?.image?.large || trackData.albumCover || trackData.image?.large || 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"%3E%3Crect fill="%23333" width="200" height="200"/%3E%3Ctext x="50%25" y="50%25" fill="%23666" font-size="60" text-anchor="middle" dy=".3em"%3E♪%3C/text%3E%3C/svg%3E'} 
+              alt={trackData.title}
               style={{
                 width: '80px',
                 height: '80px',
@@ -309,14 +320,14 @@ const SearchPage = ({ onDownload, showToast }) => {
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap'
               }}>
-                {track.title}
+                {trackData.title}
               </h3>
               <p style={{ 
                 color: '#0ea5e9', 
                 marginBottom: '0.5rem',
                 fontSize: '0.95rem'
               }}>
-                {track.artist}
+                {trackData.performer?.name || trackData.artist}
               </p>
               <div style={{ 
                 display: 'flex', 
@@ -326,14 +337,14 @@ const SearchPage = ({ onDownload, showToast }) => {
                 color: '#888',
                 alignItems: 'center'
               }}>
-                <span>{track.albumTitle}</span>
-                {track.duration && (
+                <span>{trackData.album?.title || trackData.albumTitle || 'Unknown Album'}</span>
+                {trackData.duration && (
                   <>
                     <span>•</span>
-                    <span>{formatDuration(track.duration)}</span>
+                    <span>{formatDuration(trackData.duration)}</span>
                   </>
                 )}
-                {track.audioQuality?.isHiRes && (
+                {(trackData.hires || trackData.audioQuality?.isHiRes) && (
                   <span style={{ 
                     background: 'linear-gradient(45deg, #0ea5e9, #10b981)', 
                     color: 'white', 
@@ -345,31 +356,31 @@ const SearchPage = ({ onDownload, showToast }) => {
                     Hi-Res
                   </span>
                 )}
-                {track.audioQuality && (
+                {trackData.audioQuality && (
                   <>
                     <span>•</span>
-                    <span>{track.audioQuality.maximumBitDepth}bit/{track.audioQuality.maximumSamplingRate}kHz</span>
+                    <span>{trackData.audioQuality.maximumBitDepth}bit/{trackData.audioQuality.maximumSamplingRate}kHz</span>
                   </>
                 )}
-                {track.releaseDate && (
+                {(trackData.album?.release_date_original || trackData.releaseDate) && (
                   <>
                     <span>•</span>
-                    <span>{new Date(track.releaseDate).getFullYear()}</span>
+                    <span>{new Date(trackData.album?.release_date_original || trackData.releaseDate).getFullYear()}</span>
                   </>
                 )}
               </div>
             </div>
             <button 
-              onClick={() => handleTrackDownload(track)}
-              disabled={downloadingTracks.has(track.id)}
+              onClick={() => handleTrackDownload(trackData)}
+              disabled={downloadingTracks.has(trackData.id)}
               style={{
                 padding: '0.75rem 1.25rem',
-                background: downloadingTracks.has(track.id) ? '#555' : 'linear-gradient(135deg, #0ea5e9, #0284c7)',
+                background: downloadingTracks.has(trackData.id) ? '#555' : 'linear-gradient(135deg, #0ea5e9, #0284c7)',
                 border: 'none',
                 borderRadius: '8px',
                 color: 'white',
                 fontWeight: '600',
-                cursor: downloadingTracks.has(track.id) ? 'not-allowed' : 'pointer',
+                cursor: downloadingTracks.has(trackData.id) ? 'not-allowed' : 'pointer',
                 transition: 'all 0.2s ease',
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -377,7 +388,7 @@ const SearchPage = ({ onDownload, showToast }) => {
                 flexShrink: 0
               }}
               onMouseEnter={(e) => {
-                if (!downloadingTracks.has(track.id)) {
+                if (!downloadingTracks.has(trackData.id)) {
                   e.target.style.transform = 'scale(1.05)';
                   e.target.style.boxShadow = '0 4px 12px rgba(14, 165, 233, 0.4)';
                 }
@@ -387,7 +398,7 @@ const SearchPage = ({ onDownload, showToast }) => {
                 e.target.style.boxShadow = 'none';
               }}
             >
-              {downloadingTracks.has(track.id) ? (
+              {downloadingTracks.has(trackData.id) ? (
                 <>
                   <div style={{
                     width: '14px',
@@ -407,7 +418,7 @@ const SearchPage = ({ onDownload, showToast }) => {
               )}
             </button>
           </div>
-        ))}
+        )})}
       </div>
     );
   };
@@ -464,8 +475,8 @@ const SearchPage = ({ onDownload, showToast }) => {
               cursor: 'pointer'
             }}
           >
-            <option value="album">Albums</option>
-            <option value="track">Tracks</option>
+            <option value="albums">Albums</option>
+            <option value="tracks">Tracks</option>
           </select>
           <button 
             type="submit" 
@@ -546,7 +557,7 @@ const SearchPage = ({ onDownload, showToast }) => {
 
       {results && !loading && (
         <div>
-          {searchType === 'album' && results.albums?.items?.length > 0 && (
+          {searchType === 'albums' && results.albums?.items?.length > 0 && (
             <div>
               <h2 style={{ marginBottom: '1.5rem', color: '#ffffff', fontSize: '1.5rem' }}>
                 Albums ({results.albums.items.length})
@@ -555,7 +566,7 @@ const SearchPage = ({ onDownload, showToast }) => {
             </div>
           )}
 
-          {searchType === 'track' && results.tracks?.items?.length > 0 && (
+          {searchType === 'tracks' && results.tracks?.items?.length > 0 && (
             <div>
               <h2 style={{ marginBottom: '1.5rem', color: '#ffffff', fontSize: '1.5rem' }}>
                 Tracks ({results.tracks.items.length})
@@ -564,8 +575,8 @@ const SearchPage = ({ onDownload, showToast }) => {
             </div>
           )}
 
-          {((searchType === 'album' && (!results.albums?.items || results.albums.items.length === 0)) ||
-            (searchType === 'track' && (!results.tracks?.items || results.tracks.items.length === 0))) && (
+          {((searchType === 'albums' && (!results.albums?.items || results.albums.items.length === 0)) ||
+            (searchType === 'tracks' && (!results.tracks?.items || results.tracks.items.length === 0))) && (
             <div style={{ textAlign: 'center', padding: '4rem', color: '#888' }}>
               <Music size={48} style={{ margin: '0 auto 1rem', display: 'block', opacity: 0.5 }} />
               <h3 style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>No results found</h3>
